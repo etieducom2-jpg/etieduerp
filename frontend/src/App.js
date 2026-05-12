@@ -39,6 +39,7 @@ import RoyaltyCollectionPage from '@/pages/RoyaltyCollectionPage';
 import AuditLogsPage from '@/pages/AuditLogsPage';
 import InsightsPage from '@/pages/InsightsPage';
 import ResponsibilitiesPage from '@/pages/ResponsibilitiesPage';
+import LostLeadsPage from '@/pages/LostLeadsPage';
 import Layout from '@/components/Layout';
 import ActivityTracker from '@/components/ActivityTracker';
 import { Toaster } from '@/components/ui/sonner';
@@ -254,6 +255,14 @@ function App() {
             element={
               <PrivateRoute fdaOnly>
                 <Layout><DeletedLeadsPage /></Layout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/lost-leads"
+            element={
+              <PrivateRoute>
+                <Layout><LostLeadsPage /></Layout>
               </PrivateRoute>
             }
           />

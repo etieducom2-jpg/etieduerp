@@ -184,6 +184,16 @@ export const deletedLeadsAPI = {
   restore: (leadId) => api.put(`/leads/${leadId}/restore`),
 };
 
+export const lostLeadsAPI = {
+  getAll: () => api.get('/leads/lost'),
+  restore: (leadId, newStatus = 'New') =>
+    api.put(`/leads/${leadId}/restore-from-lost`, null, { params: { new_status: newStatus } }),
+};
+
+export const branchAdminAPI = {
+  getDemosToday: () => api.get('/branch-admin/demos-today'),
+};
+
 export const studentsAPI = {
   getAll: () => api.get('/students'),
   getDetails: (id) => api.get(`/students/${id}`),
@@ -318,6 +328,7 @@ export const certificateAPI = {
   update: (id, data) => api.put(`/certificate-requests/${id}`, data),
   approve: (id) => api.post(`/certificate-requests/${id}/approve`),
   reject: (id, reason) => api.post(`/certificate-requests/${id}/reject`, null, { params: { reason } }),
+  delete: (id) => api.delete(`/certificate-requests/${id}`),
   download: (id) => api.post(`/certificate-requests/${id}/download`),
 };
 

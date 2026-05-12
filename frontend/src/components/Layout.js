@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, BarChart3, LogOut, Menu, X, Bell, FileText, Settings, Folder, CreditCard, Clock, Trash2, Wallet, FileSpreadsheet, GraduationCap, Globe, ClipboardList, CheckSquare, BookOpen, Award, Building2, UsersRound, Target, MessageSquare, Banknote, Brain, DollarSign, History, Facebook, Shield, Calendar } from 'lucide-react';
+import { LayoutDashboard, Users, BarChart3, LogOut, Menu, X, Bell, FileText, Settings, Folder, CreditCard, Clock, Trash2, Wallet, FileSpreadsheet, GraduationCap, Globe, ClipboardList, CheckSquare, BookOpen, Award, Building2, UsersRound, Target, MessageSquare, Banknote, Brain, DollarSign, History, Facebook, Shield, Calendar, Ban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -87,6 +87,8 @@ const Layout = ({ children }) => {
     { icon: LayoutDashboard, label: 'Dashboard', path: '/', show: !isCertManager && !isTrainer && !isAcademicController },
     // 2. Leads - NOT for Certificate Manager, Trainer, or Academic Controller
     { icon: Users, label: 'Leads', path: '/leads', show: !isCertManager && !isTrainer && !isAcademicController },
+    // 2.5 Lost Leads - For Admin, Branch Admin, Counsellor
+    { icon: Ban, label: 'Lost Leads', path: '/lost-leads', show: isSuperAdmin || isBranchAdmin || isCounsellor },
     // 3. Enrollments - For Branch Admin and FDE
     { icon: FileSpreadsheet, label: 'Enrollments', path: '/enrollments', show: isBranchAdmin || isFDE },
     // 4. Students - For Branch Admin and FDE

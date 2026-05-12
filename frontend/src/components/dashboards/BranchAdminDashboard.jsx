@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, DollarSign, ArrowDownRight, Award, Calendar, CreditCard, GraduationCap, Gift } from 'lucide-react';
+import { Users, DollarSign, ArrowDownRight, Award, Calendar, CreditCard, GraduationCap, Gift, Phone, User, Clock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const safeNum = (val) => (Number.isFinite(val) ? val : 0);
@@ -36,12 +36,53 @@ const BranchAdminDashboard = ({
   admissionData, 
   sessionComparison, 
   branchIncentiveStats,
+  demosToday,
   selectedYear,
   setSelectedYear
 }) => {
   return (
     <div className="space-y-6" data-testid="branch-admin-dashboard">
       
+      {/* Demos Booked for Today */}
+      {demosToday && (
+        <Card className="border-amber-200 bg-gradient-to-r from-amber-50 to-white" data-testid="demos-today-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-amber-600" />
+                Demos Booked for Today
+              </CardTitle>
+              <Badge className="bg-amber-600 text-white" data-testid="demos-today-count">
+                {demosToday.count || 0} scheduled
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {(!demosToday.demos || demosToday.demos.length === 0) ? (
+              <p className="text-sm text-slate-500 py-2">No demos scheduled for today.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {demosToday.demos.map((d) => (
+                  <div key={d.id} className="bg-white border border-amber-100 rounded-lg p-3 shadow-sm" data-testid={`demo-today-${d.id}`}>
+                    <div className="flex items-start justify-between mb-2">
+                      <p className="font-semibold text-slate-800">{d.name}</p>
+                      <Badge variant="outline" className="text-xs text-amber-700 border-amber-200 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {d.demo_time || 'TBD'}
+                      </Badge>
+                    </div>
+                    {d.program_name && <p className="text-xs text-slate-500 mb-1">{d.program_name}</p>}
+                    <div className="flex items-center gap-3 text-xs text-slate-600">
+                      {d.number && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{d.number}</span>}
+                      {d.trainer_name && <span className="flex items-center gap-1"><User className="w-3 h-3" />{d.trainer_name}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* 1. Session Summary - TOP */}
       {sessionComparison && (
         <Card className="border-slate-200 bg-gradient-to-r from-slate-50 to-white">

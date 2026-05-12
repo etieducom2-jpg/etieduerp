@@ -1081,50 +1081,50 @@ class WhatsAppSettings(BaseModel):
     events: dict = Field(default_factory=lambda: {
         "enquiry_saved": {
             "enabled": True,
-            "template_name": "",
-            "namespace": "",
+            "template_name": "eti_enquiry_confirmation",
+            "namespace": "73fda5e9_77e9_445f_82ac_9c2e532b32f4",
             "variables": ["name", "course"],
             "description": "When a new enquiry/lead is saved"
         },
         "demo_booked": {
             "enabled": True,
-            "template_name": "",
-            "namespace": "",
+            "template_name": "eti_demo_confirmation",
+            "namespace": "73fda5e9_77e9_445f_82ac_9c2e532b32f4",
             "variables": ["name", "demo_date", "demo_time", "trainer"],
             "description": "When demo is scheduled for a lead"
         },
         "enrollment_confirmed": {
             "enabled": True,
-            "template_name": "",
-            "namespace": "",
+            "template_name": "eti_enrollment_confirmation",
+            "namespace": "73fda5e9_77e9_445f_82ac_9c2e532b32f4",
             "variables": ["name", "enrollment_number", "course"],
             "description": "Thank you message when enrollment is confirmed"
         },
         "payment_received": {
             "enabled": True,
-            "template_name": "",
-            "namespace": "",
+            "template_name": "eti_payment",
+            "namespace": "73fda5e9_77e9_445f_82ac_9c2e532b32f4",
             "variables": ["name", "amount", "total_fee", "paid_fee", "pending_fee", "receipt_number"],
             "description": "Fee payment confirmation with details"
         },
         "fee_reminder": {
             "enabled": True,
-            "template_name": "",
-            "namespace": "",
+            "template_name": "eti_fee_reminder",
+            "namespace": "73fda5e9_77e9_445f_82ac_9c2e532b32f4",
             "variables": ["name", "amount_due", "due_date"],
             "description": "Automatic pending fee reminders"
         },
         "birthday_wishes": {
             "enabled": True,
-            "template_name": "",
-            "namespace": "",
+            "template_name": "eti_birthday_wishes",
+            "namespace": "73fda5e9_77e9_445f_82ac_9c2e532b32f4",
             "variables": ["name"],
             "description": "Birthday wishes sent on student's DOB"
         },
         "certificate_ready": {
             "enabled": True,
-            "template_name": "",
-            "namespace": "",
+            "template_name": "eti_certificate",
+            "namespace": "73fda5e9_77e9_445f_82ac_9c2e532b32f4",
             "variables": ["name", "certificate_id", "course"],
             "description": "When certificate is ready for download"
         }
@@ -1247,6 +1247,9 @@ class CertificateRequestCreate(BaseModel):
     training_hours: Optional[int] = None
 
 class CertificateRequestUpdate(BaseModel):
+    student_name: Optional[str] = None
+    program_name: Optional[str] = None
+    program_duration: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     program_start_date: Optional[str] = None
@@ -2275,6 +2278,9 @@ async def get_leads(
     
     if status:
         query["status"] = status
+    else:
+        # Hide Lost leads from the main list unless explicitly filtered for them
+        query["status"] = {"$ne": LeadStatus.LOST.value}
     if source:
         query["lead_source"] = source
     if program_id:
@@ -2344,6 +2350,65 @@ async def get_deleted_leads(current_user: User = Depends(require_role([UserRole.
         if isinstance(lead.get('deleted_at'), str):
             lead['deleted_at'] = datetime.fromisoformat(lead['deleted_at'])
     return [Lead(**lead) for lead in leads]
+
+# Lost Leads - must be before /leads/{lead_id}
+@api_router.get("/leads/lost", response_model=List[Lead])
+async def get_lost_leads(current_user: User = Depends(get_current_user)):
+    """Get leads marked as Lost. Visible to Admin, Branch Admin, and Counsellor."""
+    if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN, UserRole.COUNSELLOR]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {"status": LeadStatus.LOST.value, "is_deleted": {"$ne": True}}
+    
+    if current_user.role != UserRole.ADMIN and current_user.branch_id:
+        query["branch_id"] = current_user.branch_id
+    
+    # Counsellor sees only their own lost leads (created by them OR assigned to them)
+    if current_user.role == UserRole.COUNSELLOR:
+        query["$or"] = [
+            {"created_by": current_user.id},
+            {"counsellor_id": current_user.id},
+        ]
+    
+    leads = await db.leads.find(query, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+    for lead in leads:
+        if isinstance(lead.get('created_at'), str):
+            lead['created_at'] = datetime.fromisoformat(lead['created_at'])
+        if isinstance(lead.get('updated_at'), str):
+            lead['updated_at'] = datetime.fromisoformat(lead['updated_at'])
+    return [Lead(**lead) for lead in leads]
+
+@api_router.put("/leads/{lead_id}/restore-from-lost")
+async def restore_lead_from_lost(lead_id: str, new_status: Optional[str] = "New", current_user: User = Depends(get_current_user)):
+    """Restore a Lost lead back to active. Visible to Admin, Branch Admin, Counsellor."""
+    if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN, UserRole.COUNSELLOR]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get('status') != LeadStatus.LOST.value:
+        raise HTTPException(status_code=400, detail="Lead is not in Lost status")
+    
+    if current_user.role != UserRole.ADMIN and lead.get('branch_id') != current_user.branch_id:
+        raise HTTPException(status_code=403, detail="Access denied for this branch")
+    
+    # Counsellor: only own leads
+    if current_user.role == UserRole.COUNSELLOR:
+        if lead.get('created_by') != current_user.id and lead.get('counsellor_id') != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only restore your own leads")
+    
+    valid_statuses = {s.value for s in LeadStatus} - {LeadStatus.LOST.value, LeadStatus.CONVERTED.value}
+    target_status = new_status if new_status in valid_statuses else "New"
+    
+    await db.leads.update_one(
+        {"id": lead_id},
+        {"$set": {
+            "status": target_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    return {"message": f"Lead restored to '{target_status}'", "status": target_status}
 
 @api_router.get("/leads/{lead_id}", response_model=Lead)
 async def get_lead(lead_id: str, current_user: User = Depends(get_current_user)):
@@ -7568,6 +7633,29 @@ async def get_course_completions(
     return completions
 
 # ========== BRANCH ADMIN FINANCIAL STATS ==========
+@api_router.get("/branch-admin/demos-today")
+async def get_demos_today(current_user: User = Depends(get_current_user)):
+    """Get all leads with a demo scheduled for today. Used by Branch Admin dashboard."""
+    if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    query = {
+        "status": LeadStatus.DEMO_BOOKED.value,
+        "demo_date": today_str,
+        "is_deleted": {"$ne": True},
+    }
+    if current_user.role == UserRole.BRANCH_ADMIN and current_user.branch_id:
+        query["branch_id"] = current_user.branch_id
+    
+    leads = await db.leads.find(
+        query,
+        {"_id": 0, "id": 1, "name": 1, "number": 1, "program_name": 1, "demo_date": 1,
+         "demo_time": 1, "trainer_name": 1, "counsellor_id": 1, "counsellor_name": 1}
+    ).sort("demo_time", 1).to_list(200)
+    
+    return {"date": today_str, "count": len(leads), "demos": leads}
+
 @api_router.get("/branch-admin/financial-stats")
 async def get_branch_financial_stats(request: Request, current_user: User = Depends(get_current_user)):
     """Get financial statistics for Branch Admin filtered by academic session - OPTIMIZED"""
@@ -8355,9 +8443,10 @@ async def mark_incentive_paid(booking_id: str, current_user: User = Depends(get_
     # Search by both 'id' and 'booking_id' to handle old/legacy data
     booking = None
     if booking_id:
-        booking = await db.exam_bookings.find_one({"id": booking_id}, {"_id": 0})
-        if not booking:
-            booking = await db.exam_bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+        booking = await db.exam_bookings.find_one(
+            {"$or": [{"id": booking_id}, {"booking_id": booking_id}]},
+            {"_id": 0}
+        )
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
     
@@ -9619,6 +9708,28 @@ async def reject_certificate_request(
         raise HTTPException(status_code=404, detail="Certificate request not found or not pending")
     
     return {"message": "Certificate request rejected"}
+
+@api_router.delete("/certificate-requests/{request_id}")
+async def delete_certificate_request(
+    request_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Permanently delete a certificate request. After deletion the student can re-request it.
+    Allowed for Admin and Certificate Manager only.
+    """
+    if current_user.role not in [UserRole.ADMIN, UserRole.CERTIFICATE_MANAGER]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    cert = await db.certificate_requests.find_one({"id": request_id}, {"_id": 0})
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate request not found")
+    
+    result = await db.certificate_requests.delete_one({"id": request_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Certificate request not found")
+    
+    return {"message": "Certificate request deleted. Student can now submit a new request."}
+
 
 @api_router.post("/certificate-requests/{request_id}/download")
 async def download_certificate(request_id: str, current_user: User = Depends(get_current_user)):
@@ -10991,6 +11102,37 @@ async def startup_event():
             logger.info("Followup migration completed")
     except Exception as e:
         logger.error(f"Error during followup migration: {e}")
+
+    # Migration: Update WhatsApp template names to ETI defaults if blank
+    try:
+        eti_templates = {
+            "enquiry_saved": "eti_enquiry_confirmation",
+            "demo_booked": "eti_demo_confirmation",
+            "enrollment_confirmed": "eti_enrollment_confirmation",
+            "payment_received": "eti_payment",
+            "fee_reminder": "eti_fee_reminder",
+            "birthday_wishes": "eti_birthday_wishes",
+            "certificate_ready": "eti_certificate",
+        }
+        eti_namespace = "73fda5e9_77e9_445f_82ac_9c2e532b32f4"
+        ws = await db.whatsapp_settings.find_one({}, {"_id": 0})
+        if ws:
+            events = ws.get("events", {}) or {}
+            changed = False
+            for event_key, default_template in eti_templates.items():
+                cfg = events.get(event_key, {}) or {}
+                if not cfg.get("template_name"):
+                    cfg["template_name"] = default_template
+                    changed = True
+                if not cfg.get("namespace"):
+                    cfg["namespace"] = eti_namespace
+                    changed = True
+                events[event_key] = cfg
+            if changed:
+                await db.whatsapp_settings.update_one({"id": ws.get("id")}, {"$set": {"events": events}})
+                logger.info("WhatsApp template defaults migrated to ETI templates")
+    except Exception as e:
+        logger.error(f"Error during WhatsApp template migration: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

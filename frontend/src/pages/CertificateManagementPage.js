@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { FileText, Download, CheckCircle, XCircle, Eye, Edit, Clock, Award, QrCode } from 'lucide-react';
+import { FileText, Download, CheckCircle, XCircle, Eye, Edit, Clock, Award, QrCode, Trash2 } from 'lucide-react';
 import { certificateAPI } from '@/api/api';
 import QRCode from 'qrcode';
 import Layout from '@/components/Layout';
@@ -36,6 +36,7 @@ const CertificateManagementPage = () => {
   const [rejectDialog, setRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [editFormData, setEditFormData] = useState({});
+  const [deleteDialog, setDeleteDialog] = useState(false);
   const canvasRef = useRef(null);
 
   const fetchRequests = async () => {
@@ -88,6 +89,18 @@ const CertificateManagementPage = () => {
     }
   };
 
+  const handleDelete = async () => {
+    try {
+      await certificateAPI.delete(selectedRequest.id);
+      toast.success('Certificate request deleted. Student can re-request anytime.');
+      setDeleteDialog(false);
+      setSelectedRequest(null);
+      fetchRequests();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete certificate request');
+    }
+  };
+
   const handleDownload = async (request) => {
     try {
       const response = await certificateAPI.download(request.id);
@@ -116,6 +129,12 @@ const CertificateManagementPage = () => {
     // A4 Landscape at 300 DPI - Full size for proper printing
     canvas.width = 3508;
     canvas.height = 2480;
+    
+    // Maximum quality rendering
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if ('textRendering' in ctx) ctx.textRendering = 'geometricPrecision';
+    ctx.textBaseline = 'alphabetic';
     
     // ========== BACKGROUND ==========
     const bgImage = new Image();
@@ -242,9 +261,9 @@ const CertificateManagementPage = () => {
     ctx.fillText('has successfully completed the professional training program', canvas.width / 2, 1010);
     
     // ========== PROGRAM NAME (Larger) ==========
-    ctx.font = 'bold 72px "Times New Roman", Georgia, serif';
+    ctx.font = 'bold 76px "Times New Roman", Georgia, serif';
     ctx.fillStyle = '#1e40af';
-    ctx.fillText(`ETI CERTIFIED – ${certData.program_name.toUpperCase()}`, canvas.width / 2, 1140);
+    ctx.fillText(certData.program_name.toUpperCase(), canvas.width / 2, 1140);
     
     // ========== DURATION DETAILS (Larger) ==========
     ctx.font = '38px "Times New Roman", Georgia, serif';
@@ -253,7 +272,13 @@ const CertificateManagementPage = () => {
       ? certData.branch_name.split('-')[1].trim() 
       : certData.branch_name;
     ctx.fillText(`conducted by ETI Educom, ${branchCity}, Punjab, India`, canvas.width / 2, 1250);
-    ctx.fillText(`for a duration of ${certData.program_duration} (${certData.training_hours || 120} Hours) in ${certData.training_mode} Mode.`, canvas.width / 2, 1310);
+    
+    // Show hours ONLY for "Basics of Computer" program
+    const isBasicsOfComputer = (certData.program_name || '').toLowerCase().includes('basics of computer');
+    const durationLine = isBasicsOfComputer && certData.training_hours
+      ? `for a duration of ${certData.program_duration} (${certData.training_hours} Hours) in ${certData.training_mode} Mode.`
+      : `for a duration of ${certData.program_duration} in ${certData.training_mode} Mode.`;
+    ctx.fillText(durationLine, canvas.width / 2, 1310);
     
     // ========== PARTICIPATION TEXT (Larger) ==========
     ctx.font = 'italic 34px "Times New Roman", Georgia, serif';
@@ -346,12 +371,28 @@ const CertificateManagementPage = () => {
     ctx.fillStyle = '#777777';
     ctx.fillText('This certificate is issued by ETI Educom as a training completion credential and does not claim equivalence to any government degree or university qualification.', canvas.width / 2, canvas.height - 80);
     
-    // ========== DOWNLOAD ==========
-    const dataUrl = canvas.toDataURL('image/png', 1.0);
-    const link = document.createElement('a');
-    link.download = `Certificate_${certData.student_name.replace(/\s+/g, '_')}_${certData.certificate_id}.png`;
-    link.href = dataUrl;
-    link.click();
+    // ========== DOWNLOAD (max quality PNG via Blob) ==========
+    await new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          // Fallback to dataURL
+          const dataUrl = canvas.toDataURL('image/png', 1.0);
+          const link = document.createElement('a');
+          link.download = `Certificate_${certData.student_name.replace(/\s+/g, '_')}_${certData.certificate_id}.png`;
+          link.href = dataUrl;
+          link.click();
+          resolve();
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `Certificate_${certData.student_name.replace(/\s+/g, '_')}_${certData.certificate_id}.png`;
+        link.href = url;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        resolve();
+      }, 'image/png', 1.0);
+    });
   };
 
   const getStatusBadge = (status) => {
@@ -505,29 +546,6 @@ const CertificateManagementPage = () => {
                             
                             {request.status === 'Pending' && canApproveReject && (
                               <>
-                                {canEdit && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      setSelectedRequest(request);
-                                      setEditFormData({
-                                        email: request.email,
-                                        phone: request.phone,
-                                        program_start_date: request.program_start_date,
-                                        program_end_date: request.program_end_date,
-                                        training_mode: request.training_mode,
-                                        training_hours: request.training_hours,
-                                        registration_number: request.registration_number
-                                      });
-                                      setEditDialog(true);
-                                    }}
-                                    title="Edit"
-                                    data-testid={`cert-edit-${request.id}`}
-                                  >
-                                    <Edit className="w-4 h-4" />
-                                  </Button>
-                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -554,6 +572,33 @@ const CertificateManagementPage = () => {
                               </>
                             )}
                             
+                            {canEdit && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedRequest(request);
+                                  setEditFormData({
+                                    student_name: request.student_name,
+                                    program_name: request.program_name,
+                                    program_duration: request.program_duration,
+                                    email: request.email,
+                                    phone: request.phone,
+                                    program_start_date: request.program_start_date,
+                                    program_end_date: request.program_end_date,
+                                    training_mode: request.training_mode,
+                                    training_hours: request.training_hours,
+                                    registration_number: request.registration_number,
+                                  });
+                                  setEditDialog(true);
+                                }}
+                                title="Edit student/course details"
+                                data-testid={`cert-edit-${request.id}`}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                            )}
+                            
                             {request.status === 'Pending' && !canApproveReject && (
                               <span className="text-xs text-slate-400 italic">Awaiting Cert Manager</span>
                             )}
@@ -568,6 +613,22 @@ const CertificateManagementPage = () => {
                                 data-testid={`cert-download-${request.id}`}
                               >
                                 <Download className="w-4 h-4" />
+                              </Button>
+                            )}
+                            
+                            {canApproveReject && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setSelectedRequest(request);
+                                  setDeleteDialog(true);
+                                }}
+                                title="Delete request (student can re-apply)"
+                                data-testid={`cert-delete-${request.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </Button>
                             )}
                           </div>
@@ -652,12 +713,38 @@ const CertificateManagementPage = () => {
 
         {/* Edit Dialog */}
         <Dialog open={editDialog} onOpenChange={setEditDialog}>
-          <DialogContent>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Edit Certificate Request</DialogTitle>
+              <DialogTitle>Edit Certificate Details</DialogTitle>
+              <p className="text-sm text-slate-500">Changes here will be reflected on the printed certificate.</p>
             </DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Student Name</Label>
+                  <Input
+                    value={editFormData.student_name || ''}
+                    onChange={(e) => setEditFormData({...editFormData, student_name: e.target.value})}
+                    data-testid="cert-edit-student-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Course / Program Name</Label>
+                  <Input
+                    value={editFormData.program_name || ''}
+                    onChange={(e) => setEditFormData({...editFormData, program_name: e.target.value})}
+                    data-testid="cert-edit-program-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Program Duration</Label>
+                  <Input
+                    value={editFormData.program_duration || ''}
+                    onChange={(e) => setEditFormData({...editFormData, program_duration: e.target.value})}
+                    placeholder="e.g., 3 Months"
+                    data-testid="cert-edit-program-duration"
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label>Email</Label>
                   <Input
@@ -673,11 +760,20 @@ const CertificateManagementPage = () => {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label>Registration Number</Label>
+                  <Input
+                    value={editFormData.registration_number || ''}
+                    onChange={(e) => setEditFormData({...editFormData, registration_number: e.target.value})}
+                    placeholder="ETI-STU-XXXX"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label>Start Date</Label>
                   <Input
                     type="date"
                     value={editFormData.program_start_date || ''}
                     onChange={(e) => setEditFormData({...editFormData, program_start_date: e.target.value})}
+                    data-testid="cert-edit-start-date"
                   />
                 </div>
                 <div className="space-y-2">
@@ -686,6 +782,7 @@ const CertificateManagementPage = () => {
                     type="date"
                     value={editFormData.program_end_date || ''}
                     onChange={(e) => setEditFormData({...editFormData, program_end_date: e.target.value})}
+                    data-testid="cert-edit-end-date"
                   />
                 </div>
                 <div className="space-y-2">
@@ -704,19 +801,45 @@ const CertificateManagementPage = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Training Hours</Label>
-                  <Input
-                    type="number"
-                    value={editFormData.training_hours || ''}
-                    onChange={(e) => setEditFormData({...editFormData, training_hours: parseInt(e.target.value)})}
-                  />
-                </div>
+                {(editFormData.program_name || '').toLowerCase().includes('basics of computer') && (
+                  <div className="space-y-2">
+                    <Label>Training Hours <span className="text-xs text-slate-400">(Basics of Computer only)</span></Label>
+                    <Input
+                      type="number"
+                      value={editFormData.training_hours || ''}
+                      onChange={(e) => setEditFormData({...editFormData, training_hours: parseInt(e.target.value) || null})}
+                    />
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditDialog(false)}>Cancel</Button>
-              <Button onClick={handleUpdate}>Save Changes</Button>
+              <Button onClick={handleUpdate} data-testid="cert-edit-save">Save Changes</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialog} onOpenChange={setDeleteDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Certificate Request?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm text-slate-600">
+              <p>This will permanently remove the certificate request from the system.</p>
+              <p>The student can submit a fresh request afterwards.</p>
+              {selectedRequest && (
+                <div className="bg-slate-50 rounded-md p-3 mt-2">
+                  <p><span className="text-slate-500">Student:</span> <span className="font-medium">{selectedRequest.student_name}</span></p>
+                  <p><span className="text-slate-500">Program:</span> {selectedRequest.program_name}</p>
+                  <p><span className="text-slate-500">Certificate ID:</span> <span className="font-mono">{selectedRequest.certificate_id}</span></p>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteDialog(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDelete} data-testid="cert-confirm-delete">Delete Permanently</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

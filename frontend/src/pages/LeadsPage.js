@@ -33,6 +33,7 @@ const STATUS_COLORS = {
 };
 
 const STATUSES = ['New', 'Contacted', 'Demo Booked', 'Follow-up', 'Converted', 'Lost'];
+const VISIBLE_STATUSES = ['New', 'Contacted', 'Demo Booked', 'Follow-up'];
 
 const leadSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -57,6 +58,8 @@ const LeadsPage = () => {
   const [leadSources, setLeadSources] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [sourceFilter, setSourceFilter] = useState('All');
+  const [programFilter, setProgramFilter] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [loading, setLoading] = useState(true);
@@ -105,7 +108,7 @@ const LeadsPage = () => {
 
   useEffect(() => {
     filterLeads();
-  }, [leads, searchTerm, statusFilter, dateFrom, dateTo]);
+  }, [leads, searchTerm, statusFilter, sourceFilter, programFilter, dateFrom, dateTo]);
 
   const fetchData = async () => {
     try {
@@ -136,11 +139,19 @@ const LeadsPage = () => {
   const filterLeads = () => {
     let filtered = leads;
 
-    // Hide converted leads by default (unless specifically filtered)
+    // Always hide Lost (it has its own page) and Converted (it has its own pipeline) from the default 'All' view
     if (statusFilter === 'All') {
-      filtered = filtered.filter((lead) => lead.status !== 'Converted');
+      filtered = filtered.filter((lead) => lead.status !== 'Converted' && lead.status !== 'Lost');
     } else if (statusFilter !== 'All') {
       filtered = filtered.filter((lead) => lead.status === statusFilter);
+    }
+
+    if (sourceFilter !== 'All') {
+      filtered = filtered.filter((lead) => lead.lead_source === sourceFilter);
+    }
+
+    if (programFilter !== 'All') {
+      filtered = filtered.filter((lead) => lead.program_id === programFilter);
     }
 
     if (searchTerm) {
@@ -412,9 +423,36 @@ const LeadsPage = () => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="All">All Statuses</SelectItem>
-            {STATUSES.map((status) => (
+            {VISIBLE_STATUSES.map((status) => (
               <SelectItem key={status} value={status}>
                 {status}
+              </SelectItem>
+            ))}
+            <SelectItem value="Converted">Converted</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sourceFilter} onValueChange={setSourceFilter}>
+          <SelectTrigger className="w-full sm:w-40" data-testid="source-filter">
+            <SelectValue placeholder="Filter by source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All Sources</SelectItem>
+            {leadSources.map((src) => (
+              <SelectItem key={src.id} value={src.name}>
+                {src.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={programFilter} onValueChange={setProgramFilter}>
+          <SelectTrigger className="w-full sm:w-48" data-testid="program-filter">
+            <SelectValue placeholder="Filter by program" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All Programs</SelectItem>
+            {programs.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
               </SelectItem>
             ))}
           </SelectContent>

@@ -1,0 +1,40 @@
+{
+  "summary": "Backend-only testing for ETIeduerp iteration: Lost leads, restore-from-lost, demos-today, AI insights, cert request edit/delete (cert manager fields), exam-bookings incentive-paid by id/booking_id, and default eti_* WhatsApp templates. Wrote pytest suite (24 tests) covering all 9 features-or-bugs-to-test. ALL 24 TESTS PASSED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/analytics/ai-leads-insights", "issue": "EMERGENT_LLM_KEY budget exceeds quickly (Max budget: 0.001 USD seen in logs). Endpoint correctly falls back to rule-based insights with ai_powered=false. Structure (insights/recommendations/summary) is always returned with HTTP 200, which is acceptable per the review request. Consider raising the LLM budget if consistent ai_powered=true is desired."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_lost_leads_etc.py",
+    "/app/test_reports/pytest/pytest_iteration.xml"
+  ],
+  "verified_features": [
+    "GET /api/leads/lost works for Admin/Branch Admin/Counsellor; 403 for FDE & Cert Manager (verified)",
+    "PUT /api/leads/{id}/restore-from-lost?new_status=Contacted moves Lost->Contacted; 400 when not in Lost; 403 for FDE",
+    "GET /api/leads excludes Lost by default and includes them when ?status=Lost is passed",
+    "GET /api/branch-admin/demos-today returns {date,count,demos} for Admin/Branch Admin; 403 for FDE/Cert Manager; new Demo Booked lead appears",
+    "PUT /api/certificate-requests/{id} accepts student_name, program_name, program_duration; persisted across GET; 403 for Counsellor",
+    "DELETE /api/certificate-requests/{id} works for Cert Manager; 403 for Counsellor; subsequent GET returns 404",
+    "GET /api/analytics/ai-leads-insights returns 200 with insights/recommendations/summary/ai_powered for Counsellor & Branch Admin; 403 for Admin (role-restricted)",
+    "PUT /api/exam-bookings/{booking_id}/incentive-paid works using both id and legacy booking_id ($or query); returns 404 only for unknown IDs",
+    "GET /api/admin/whatsapp-settings returns pre-populated events with eti_enquiry_confirmation, eti_demo_confirmation, eti_enrollment_confirmation, eti_payment, eti_fee_reminder, eti_birthday_wishes, eti_certificate"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 11,142 lines - violates 700-line guideline; should be split into routers (auth, leads, certificates, exams, whatsapp, analytics).",
+    "Several endpoints accept Optional new_status as query param without strict validation (restore_lead_from_lost silently coerces invalid values to 'New'). Consider returning 400 for invalid statuses instead of silently defaulting.",
+    "EMERGENT_LLM_KEY budget appears very small (~$0.001) which causes AI insights to fall back to rule-based after a few calls. Acceptable per spec but worth flagging to product owner.",
+    "GET /api/certificate-requests/{id} returns the full document including possibly sensitive fields (verification_id, certificate_id) without role restriction beyond authenticated user - verify intended."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration_lost_leads_etc.py"],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "not tested (skip per request)"},
+  "test_credentials": "Admin: admin@etieducom.com / admin@123. Test users (auto-created, prefixed TEST_, password Test@123): test_ba_{run}@test.com (Branch Admin), test_couns_{run}@test.com (Counsellor), test_cm_{run}@test.com (Certificate Manager), test_fde_{run}@test.com (FDE).",
+  "seed_data_creation": "Created TEST_Branch_{run}, test users (Branch Admin/Counsellor/Cert Manager/FDE), TEST_LostLead, TEST_DemoToday leads, test certificate_requests and exam_bookings docs (with both id and booking_id legacy variants). Cleanup fixture removes TEST_-prefixed leads/cert requests and EBK- exam bookings at end of session.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 9 backend features fully verified via /app/backend/tests/test_iteration_lost_leads_etc.py (24 tests, 100% pass). The test file is self-contained and creates required role users via /api/admin/users on the first run; subsequent runs reuse existing TEST_ users. AI insights endpoint may return ai_powered=false if EMERGENT_LLM_KEY budget exhausted - both outcomes are valid per spec. Re-run with: `pytest /app/backend/tests/test_iteration_lost_leads_etc.py -v`",
+  "rca of the issue": "N/A - no failures detected"
+}

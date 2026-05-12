@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { analyticsAPI, leadsAPI, followupAPI, financialStatsAPI, incentivesAPI, royaltyAPI } from '@/api/api';
+import { analyticsAPI, leadsAPI, followupAPI, financialStatsAPI, incentivesAPI, royaltyAPI, branchAdminAPI } from '@/api/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -61,6 +61,7 @@ const Dashboard = () => {
   const [counsellorDashboard, setCounsellorDashboard] = useState(null);
   const [counsellorDashboardEnhanced, setCounsellorDashboardEnhanced] = useState(null);
   const [sessionComparison, setSessionComparison] = useState(null);
+  const [demosToday, setDemosToday] = useState(null);
   const fetchingRef = React.useRef(false); // Prevent concurrent calls
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -144,6 +145,14 @@ const Dashboard = () => {
           // Fetch monthly admission stats
           const admissionRes = await analyticsAPI.getMonthlyAdmissions(selectedYear);
           setAdmissionData(admissionRes.data);
+          
+          // Fetch today's demos for branch admin
+          try {
+            const demosRes = await branchAdminAPI.getDemosToday();
+            setDemosToday(demosRes.data);
+          } catch (e) {
+            console.error('Error fetching demos today:', e);
+          }
         } catch (e) {
           console.error('Error fetching branch stats:', e);
         }
@@ -334,6 +343,7 @@ const Dashboard = () => {
           admissionData={admissionData}
           sessionComparison={sessionComparison}
           branchIncentiveStats={branchIncentiveStats}
+          demosToday={demosToday}
           selectedYear={selectedYear}
           setSelectedYear={setSelectedYear}
         />
