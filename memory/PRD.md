@@ -1,48 +1,49 @@
-# ETI Educom - Institute Management System
+# PRD — ETI Educom Branch Management System (etieduerp)
 
-## Problem Statement
-Cloned from `https://github.com/wizbangindia-creator/etierp`. User progressively asked for:
-1. Fix International Certifications "Mark Paid" 404 bug; dashboards show Incentive Earned / Released.
-2. Verify full closed loop: trainer-marks-complete requires fee paid; multi-course certificates.
-3. Cert request requires fee paid AND trainer-marked exam done. Only Cert Manager approves.
-4. **Only Certificate Manager and Front Desk Executive can view & download approved certificates** (and Super Admin as system fallback).
+## Origin
+Cloned from `https://github.com/etieducom2-jpg/etieduerp` on 2026-05-12 and replaced `/app` content. Stack: FastAPI + MongoDB + React 19 + Tailwind + CRACO.
 
-## Tech Stack
-- Frontend: React + Craco + Tailwind + Shadcn/UI
-- Backend: FastAPI + Motor + MongoDB
+## User personas
+- **Super Admin (Admin)** — full access across all branches.
+- **Branch Admin** — full access within their branch.
+- **Counsellor** — manages assigned leads/follow-ups; receives incentives on international exams.
+- **Front Desk Executive (FDE)** — enrollments, payments, students.
+- **Certificate Manager** — reviews / approves / edits / deletes certificate requests.
+- **Trainer** — batch attendance, course completion.
+- **Academic Controller** — curriculum, quizzes.
 
-## Roles & Final Certificate Permissions
-| Role | Sidebar "Certificates" | List/view | Approve/Reject | Download |
-|------|:-:|:-:|:-:|:-:|
-| Super Admin | ✅ | ✅ (all branches) | ✅ | ✅ |
-| Certificate Manager | ✅ | ✅ (all branches) | ✅ | ✅ |
-| Front Desk Executive | ✅ | ✅ (own branch) | ❌ | ✅ |
-| Branch Admin | ❌ | ❌ | ❌ | ❌ |
-| Counsellor | ❌ | ❌ | ❌ | ❌ |
-| Trainer | ❌ | ❌ | ❌ | ❌ |
+## Core requirements (static)
+- Multi-branch CRM with leads, follow-ups, enrollments, payments, students.
+- Certificate generation (server validates → frontend renders A4 PNG).
+- International exam booking + counsellor incentive flow.
+- Role-based dashboards, AI insights (gpt-4o via Emergent key), WhatsApp templated notifications (MSG91).
 
-## Closed-Loop Flow
-1. Super Admin creates **programs/courses** via `POST /api/admin/programs`.
-2. Student enrolls. Each enrollment has its own `final_fee` & `total_paid`.
-3. **Trainer "Mark Complete"** blocks unless student is assigned + fee fully paid.
-4. **Public cert request** blocks unless: enrollment exists, fee paid, trainer has marked complete, exam not Failed, no duplicate active request.
-5. **Approve/Reject** — Certificate Manager + Super Admin only. Approval auto-marks enrollment `Completed`.
-6. **Download** — Front Desk Executive, Certificate Manager, Super Admin only. Admin/CM download transitions status to `Ready` + sends WhatsApp.
+## Implemented in this iteration (2026-05-12)
+- **Lost Leads** — new `GET /api/leads/lost`, `PUT /api/leads/{id}/restore-from-lost` endpoints; sidebar tab `/lost-leads` visible to Admin/Branch Admin/Counsellor; restore back to New/Contacted/Follow-up/Demo Booked.
+- **Lead List Improvements** — `GET /api/leads` hides Lost by default (only returns Lost when `?status=Lost`); UI adds Source + Program filters; Lost removed from filter dropdown (lives in its own page).
+- **AI Insights** — `EMERGENT_LLM_KEY` added to `/app/backend/.env`; endpoint returns AI-powered insights with rule-based fallback.
+- **Certificate Manager** — new `DELETE /api/certificate-requests/{id}` (Admin & Cert Manager); `CertificateRequestUpdate` expanded to allow editing `student_name`, `program_name`, `program_duration` (in addition to dates, mode, hours). Edits reflect on the printed certificate.
+- **Certificate Quality** — removed duplicated `ETI CERTIFIED –` prefix on program name; `(Hours)` clause only rendered when program contains "Basics of Computer"; canvas now uses high image-smoothing, geometricPrecision text rendering, and blob-based download for max-fidelity PNG.
+- **International Exams** — `mark_incentive_paid` lookup uses `$or` on `id`/`booking_id` to eliminate the 'Booking not found' edge case on legacy bookings.
+- **WhatsApp Templates** — defaults updated and a startup migration fills any blanks with: `eti_enquiry_confirmation`, `eti_demo_confirmation`, `eti_enrollment_confirmation`, `eti_payment`, `eti_fee_reminder`, `eti_birthday_wishes`, `eti_certificate` (namespace `73fda5e9_77e9_445f_82ac_9c2e532b32f4`).
+- **Branch Admin Dashboard** — new "Demos Booked for Today" card (`GET /api/branch-admin/demos-today`) showing each lead, time, trainer, phone.
 
-## What's Been Implemented
-- [2026-04-18] Repo cloned, deps installed, admin seeded.
-- [2026-04-18] Fixed International Exam Incentive "Mark Paid" + dashboards show Earned/Released.
-- [2026-04-19] Cert request flow: phone+branch matching; `course_completed` flag per course; cert request requires trainer completion + exam pass; cert UI gates Approve/Reject to CM/Admin.
-- [2026-04-19] **Final permission tightening**: list/view/download restricted to FDE + Cert Manager (+ Admin). Branch Admin & Counsellor no longer see the Certificates tab at all.
+## Testing
+Backend testing agent ran 24 tests against the new/changed endpoints: **24/24 passed (100%)**. Report: `/app/test_reports/iteration_1.json`. Tests file: `/app/backend/tests/test_iteration_lost_leads_etc.py`.
 
-## Verified E2E (10/10 permission checks passed)
-```
-LISTING           Counsellor=403  BA=403  FDE=200  CM=200  Admin=200
-DOWNLOAD approved Counsellor=403  BA=403  FDE=200  CM=200  Admin=200
-```
+## Backlog / Next Action Items
+- P1: Add a "View Followups + Last Contact" timeline directly on the LostLeadsPage row (currently restore-only).
+- P1: Frontend smoke test via Playwright for sidebar/lost-leads/cert delete flows (skipped this round per testing-agent scope).
+- P2: AI insights — bump Emergent LLM budget once consumed; consider caching for 1h to reduce calls.
+- P2: Bulk actions on leads (assign counsellor, change status, export selected).
+- P2: Refactor `server.py` (11k lines) into the `routes/` package — the scaffolding (`/app/backend/routes/leads.py`, etc.) already exists.
+- P2: Validate `new_status` query param strictly in `restore-from-lost` (currently coerces invalid values to "New").
 
-## Prioritized Backlog
-- P1: Auto-send certificate PDF to student via WhatsApp on approval.
-- P2: Audit log on approve/reject/download events.
-- P2: Bulk-approve pending certificate requests.
-- P3: Per-enrollment fee payment progress bar on public cert request page.
+## Files of note
+- `/app/backend/server.py` — all routes/models (monolith).
+- `/app/backend/.env` — MONGO_URL, DB_NAME, CORS_ORIGINS, EMERGENT_LLM_KEY.
+- `/app/frontend/src/pages/LostLeadsPage.js` — new.
+- `/app/frontend/src/components/dashboards/BranchAdminDashboard.jsx` — Demos Today card.
+- `/app/frontend/src/pages/CertificateManagementPage.js` — Delete, expanded Edit, certificate quality.
+- `/app/frontend/src/pages/LeadsPage.js` — Source + Program filters.
+- `/app/frontend/src/components/Layout.js` — Lost Leads sidebar item.
