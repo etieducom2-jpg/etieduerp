@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Users, DollarSign, ArrowDownRight, Award, Calendar, CreditCard, GraduationCap, Gift, Phone, User, Clock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import TrainerHeatmap from './TrainerHeatmap';
 
 const safeNum = (val) => (Number.isFinite(val) ? val : 0);
 const safeAbs = (val) => Math.abs(safeNum(val));
@@ -37,6 +38,9 @@ const BranchAdminDashboard = ({
   sessionComparison, 
   branchIncentiveStats,
   demosToday,
+  trainerHeatmap,
+  trainerHeatmapLoading,
+  onRefreshTrainerHeatmap,
   selectedYear,
   setSelectedYear
 }) => {
@@ -82,6 +86,13 @@ const BranchAdminDashboard = ({
           </CardContent>
         </Card>
       )}
+
+      {/* Trainer Load & Availability Heatmap */}
+      <TrainerHeatmap
+        data={trainerHeatmap}
+        loading={trainerHeatmapLoading}
+        onRefresh={onRefreshTrainerHeatmap}
+      />
 
       {/* 1. Session Summary - TOP */}
       {sessionComparison && (

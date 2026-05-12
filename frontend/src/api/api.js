@@ -192,6 +192,7 @@ export const lostLeadsAPI = {
 
 export const branchAdminAPI = {
   getDemosToday: () => api.get('/branch-admin/demos-today'),
+  getTrainerHeatmap: () => api.get('/branch-admin/trainer-heatmap'),
 };
 
 export const studentsAPI = {

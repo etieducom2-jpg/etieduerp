@@ -7656,6 +7656,235 @@ async def get_demos_today(current_user: User = Depends(get_current_user)):
     
     return {"date": today_str, "count": len(leads), "demos": leads}
 
+
+def _parse_batch_timing(timing: str):
+    """Parse free-form batch timing string into (start_hour, end_hour) in 24h.
+    Supports: "10:00 AM - 12:00 PM", "10-12", "9:30am - 11:30am", "14:00-16:00".
+    Returns (None, None) if unparseable.
+    """
+    if not timing or not isinstance(timing, str):
+        return None, None
+    import re
+    s = timing.strip().lower().replace('.', '')
+    parts = re.split(r'\s*(?:-|to|–|—)\s*', s)
+    if len(parts) < 2:
+        return None, None
+    
+    def to_hour(token: str):
+        token = token.strip()
+        m = re.search(r'(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?', token)
+        if not m:
+            return None
+        hour = int(m.group(1))
+        minute = int(m.group(2)) if m.group(2) else 0
+        meridian = m.group(3)
+        if meridian == 'pm' and hour < 12:
+            hour += 12
+        elif meridian == 'am' and hour == 12:
+            hour = 0
+        # Heuristic: if no meridian and hour < 8, assume PM (e.g., "3 - 5" -> 15-17)
+        if meridian is None and hour < 8:
+            hour += 12
+        return hour + (minute / 60.0)
+    
+    start = to_hour(parts[0])
+    end = to_hour(parts[1])
+    if start is None or end is None:
+        return None, None
+    if end <= start:
+        end += 12
+    return start, end
+
+
+@api_router.get("/branch-admin/trainer-heatmap")
+async def get_trainer_heatmap(current_user: User = Depends(get_current_user)):
+    """Trainer load / availability heatmap for the branch.
+    
+    Returns hourly grid (8AM-10PM) showing how many active batches each trainer is running
+    in that hour, plus an AI summary of who is overloaded vs. who has open slots.
+    """
+    if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    branch_id = current_user.branch_id if current_user.role == UserRole.BRANCH_ADMIN else None
+    
+    trainer_query = {"role": UserRole.TRAINER.value, "is_active": True}
+    if branch_id:
+        trainer_query["branch_id"] = branch_id
+    trainers = await db.users.find(
+        trainer_query, {"_id": 0, "id": 1, "name": 1}
+    ).to_list(200)
+    
+    batch_query = {"status": "Active"}
+    if branch_id:
+        batch_query["branch_id"] = branch_id
+    batches = await db.batches.find(
+        batch_query,
+        {"_id": 0, "id": 1, "name": 1, "trainer_id": 1, "trainer_name": 1,
+         "timing": 1, "program_name": 1, "max_students": 1}
+    ).to_list(500)
+    
+    assignments = await db.student_batch_assignments.find(
+        {}, {"_id": 0, "batch_id": 1}
+    ).to_list(5000)
+    students_per_batch = {}
+    for a in assignments:
+        bid = a.get('batch_id')
+        students_per_batch[bid] = students_per_batch.get(bid, 0) + 1
+    
+    HOUR_START = 8
+    HOUR_END = 22
+    hours = list(range(HOUR_START, HOUR_END))
+    
+    parsed_batches = []
+    for b in batches:
+        s, e = _parse_batch_timing(b.get('timing'))
+        parsed_batches.append({
+            **b,
+            "start_hour": s,
+            "end_hour": e,
+            "student_count": students_per_batch.get(b.get('id'), 0),
+        })
+    
+    rows = []
+    for t in trainers:
+        tbatches = [pb for pb in parsed_batches if pb.get('trainer_id') == t['id']]
+        cells = []
+        for h in hours:
+            active = [pb for pb in tbatches
+                      if pb['start_hour'] is not None and pb['end_hour'] is not None
+                      and pb['start_hour'] < (h + 1) and pb['end_hour'] > h]
+            cells.append({
+                "hour": h,
+                "batch_count": len(active),
+                "student_count": sum(pb['student_count'] for pb in active),
+                "batches": [{"id": pb['id'], "name": pb.get('name'),
+                             "program": pb.get('program_name'),
+                             "students": pb['student_count'],
+                             "timing": pb.get('timing')} for pb in active],
+            })
+        total_batches = len(tbatches)
+        total_students = sum(pb['student_count'] for pb in tbatches)
+        busy_hours = sum(1 for c in cells if c['batch_count'] > 0)
+        rows.append({
+            "trainer_id": t['id'],
+            "trainer_name": t.get('name', 'Unknown'),
+            "cells": cells,
+            "total_batches": total_batches,
+            "total_students": total_students,
+            "busy_hours": busy_hours,
+            "free_hours": len(hours) - busy_hours,
+            "utilization_pct": round((busy_hours / len(hours)) * 100) if hours else 0,
+        })
+    
+    rows.sort(key=lambda r: (-r['total_batches'], -r['busy_hours']))
+    
+    free_slots = []
+    for r in rows:
+        for c in r['cells']:
+            if c['batch_count'] == 0:
+                free_slots.append({
+                    "trainer_id": r['trainer_id'],
+                    "trainer_name": r['trainer_name'],
+                    "hour": c['hour'],
+                })
+    
+    def _fmt_hour(h):
+        ampm = 'AM' if h < 12 else 'PM'
+        hh = h if h <= 12 else h - 12
+        if hh == 0:
+            hh = 12
+        return f"{hh}{ampm}"
+    
+    ai_summary = None
+    used_ai = False
+    if LLM_AVAILABLE and os.environ.get('EMERGENT_LLM_KEY') and rows:
+        try:
+            compact = []
+            for r in rows:
+                busy_ranges = []
+                start = None
+                for c in r['cells']:
+                    if c['batch_count'] > 0:
+                        if start is None:
+                            start = c['hour']
+                    else:
+                        if start is not None:
+                            busy_ranges.append(f"{_fmt_hour(start)}-{_fmt_hour(c['hour'])}")
+                            start = None
+                if start is not None:
+                    busy_ranges.append(f"{_fmt_hour(start)}-{_fmt_hour(HOUR_END)}")
+                compact.append({
+                    "trainer": r['trainer_name'],
+                    "batches": r['total_batches'],
+                    "students": r['total_students'],
+                    "busy": busy_ranges,
+                    "utilization_pct": r['utilization_pct'],
+                })
+            
+            chat = LlmChat(
+                api_key=os.environ.get('EMERGENT_LLM_KEY'),
+                session_id=f"trainer-heatmap-{current_user.id}-{datetime.now().strftime('%Y%m%d%H')}",
+                system_message=(
+                    "You are an operations analyst for an education institute. "
+                    "Given trainer schedules, produce a short, friendly summary (3-5 bullets, max 90 words total) "
+                    "highlighting: (1) which trainers are most loaded, (2) which trainers have open capacity, "
+                    "(3) which time slots are the institute's bottleneck, and (4) one actionable suggestion. "
+                    "Do NOT use markdown headings. Plain text bullets only, each starting with '• '."
+                )
+            ).with_model("openai", "gpt-4o")
+            
+            response = await chat.send_message(UserMessage(
+                text=f"Active trainer schedule (hours 8AM-10PM):\n{json.dumps(compact, indent=2)}"
+            ))
+            if response and response.strip():
+                ai_summary = response.strip()
+                used_ai = True
+        except Exception as e:
+            logging.warning(f"Trainer heatmap AI summary failed: {e}")
+    
+    if not ai_summary and rows:
+        most_loaded = rows[0]
+        least_loaded = rows[-1] if len(rows) > 1 else None
+        lines = []
+        if most_loaded['total_batches'] > 0:
+            lines.append(
+                f"• {most_loaded['trainer_name']} is the busiest — "
+                f"{most_loaded['total_batches']} active batches, {most_loaded['total_students']} students, "
+                f"{most_loaded['utilization_pct']}% utilization."
+            )
+        if least_loaded and least_loaded['trainer_id'] != most_loaded['trainer_id']:
+            lines.append(
+                f"• {least_loaded['trainer_name']} has the most open capacity — "
+                f"{least_loaded['free_hours']} free hour-slots available."
+            )
+        slot_load = []
+        for i, h in enumerate(hours):
+            busy_trainers = sum(1 for r in rows if r['cells'][i]['batch_count'] > 0)
+            slot_load.append((h, busy_trainers))
+        slot_load.sort(key=lambda x: -x[1])
+        if slot_load and slot_load[0][1] > 0:
+            lines.append(
+                f"• Peak hour is around {_fmt_hour(slot_load[0][0])} — "
+                f"{slot_load[0][1]}/{len(rows)} trainers occupied."
+            )
+        lines.append("• Consider scheduling new demos / batches in the green slots to balance load.")
+        ai_summary = "\n".join(lines)
+    
+    return {
+        "hours": hours,
+        "trainers": rows,
+        "free_slots": free_slots,
+        "ai_summary": ai_summary or "No trainers or active batches found yet.",
+        "ai_powered": used_ai,
+        "totals": {
+            "trainer_count": len(rows),
+            "active_batches": sum(r['total_batches'] for r in rows),
+            "total_students": sum(r['total_students'] for r in rows),
+        }
+    }
+
+
 @api_router.get("/branch-admin/financial-stats")
 async def get_branch_financial_stats(request: Request, current_user: User = Depends(get_current_user)):
     """Get financial statistics for Branch Admin filtered by academic session - OPTIMIZED"""

@@ -62,6 +62,8 @@ const Dashboard = () => {
   const [counsellorDashboardEnhanced, setCounsellorDashboardEnhanced] = useState(null);
   const [sessionComparison, setSessionComparison] = useState(null);
   const [demosToday, setDemosToday] = useState(null);
+  const [trainerHeatmap, setTrainerHeatmap] = useState(null);
+  const [trainerHeatmapLoading, setTrainerHeatmapLoading] = useState(false);
   const fetchingRef = React.useRef(false); // Prevent concurrent calls
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -133,28 +135,33 @@ const Dashboard = () => {
         try {
           const branchStatsRes = await financialStatsAPI.get();
           setBranchFinancialStats(branchStatsRes.data);
-          
-          // Also fetch branch incentive stats for Branch Admin
+        } catch (e) { console.error('financial-stats:', e); }
+        try {
           const branchIncentiveRes = await incentivesAPI.getBranchIncentiveStats();
           setBranchIncentiveStats(branchIncentiveRes.data);
-          
-          // Fetch royalty for last month
-          const royaltyRes = await royaltyAPI.getBranchRoyalty(user.branch_id);
-          setRoyaltyData(royaltyRes.data);
-          
-          // Fetch monthly admission stats
+        } catch (e) { console.error('incentive-stats:', e); }
+        try {
+          if (user.branch_id) {
+            const royaltyRes = await royaltyAPI.getBranchRoyalty(user.branch_id);
+            setRoyaltyData(royaltyRes.data);
+          }
+        } catch (e) { console.error('royalty:', e); }
+        try {
           const admissionRes = await analyticsAPI.getMonthlyAdmissions(selectedYear);
           setAdmissionData(admissionRes.data);
-          
-          // Fetch today's demos for branch admin
-          try {
-            const demosRes = await branchAdminAPI.getDemosToday();
-            setDemosToday(demosRes.data);
-          } catch (e) {
-            console.error('Error fetching demos today:', e);
-          }
+        } catch (e) { console.error('admissions:', e); }
+        try {
+          const demosRes = await branchAdminAPI.getDemosToday();
+          setDemosToday(demosRes.data);
+        } catch (e) { console.error('demos-today:', e); }
+        try {
+          setTrainerHeatmapLoading(true);
+          const heatmapRes = await branchAdminAPI.getTrainerHeatmap();
+          setTrainerHeatmap(heatmapRes.data);
         } catch (e) {
-          console.error('Error fetching branch stats:', e);
+          console.error('trainer-heatmap:', e);
+        } finally {
+          setTrainerHeatmapLoading(false);
         }
       }
       
@@ -214,6 +221,18 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
       fetchingRef.current = false; // Reset the flag
+    }
+  };
+
+  const refreshTrainerHeatmap = async () => {
+    try {
+      setTrainerHeatmapLoading(true);
+      const res = await branchAdminAPI.getTrainerHeatmap();
+      setTrainerHeatmap(res.data);
+    } catch (e) {
+      console.error('Error refreshing trainer heatmap:', e);
+    } finally {
+      setTrainerHeatmapLoading(false);
     }
   };
 
@@ -344,6 +363,9 @@ const Dashboard = () => {
           sessionComparison={sessionComparison}
           branchIncentiveStats={branchIncentiveStats}
           demosToday={demosToday}
+          trainerHeatmap={trainerHeatmap}
+          trainerHeatmapLoading={trainerHeatmapLoading}
+          onRefreshTrainerHeatmap={refreshTrainerHeatmap}
           selectedYear={selectedYear}
           setSelectedYear={setSelectedYear}
         />
