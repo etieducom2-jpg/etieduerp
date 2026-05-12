@@ -1528,6 +1528,12 @@ async def get_whatsapp_settings():
 
 async def send_whatsapp_notification(phone_number: str, event_type: str, template_data: dict):
     """Send WhatsApp notification via MSG91 template API with per-event configuration"""
+    # TEST MODE: override recipient to a single test number when WHATSAPP_TEST_NUMBER is set
+    test_number = os.environ.get('WHATSAPP_TEST_NUMBER', '').strip()
+    if test_number:
+        logging.info(f"[WHATSAPP TEST MODE] Redirecting message for '{event_type}' from {phone_number} -> {test_number}")
+        phone_number = test_number
+    
     settings = await get_whatsapp_settings()
     
     if not settings.enabled:
@@ -11238,6 +11244,13 @@ async def delete_responsibility(
     return {"message": "Responsibility deleted successfully"}
 
 app.include_router(api_router)
+
+@app.middleware("http")
+async def add_no_crawl_headers(request: Request, call_next):
+    """Prevent search engine indexing across the entire app."""
+    response = await call_next(request)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet, noimageindex"
+    return response
 
 app.add_middleware(
     CORSMiddleware,
