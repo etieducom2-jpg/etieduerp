@@ -1404,6 +1404,55 @@ class PaymentPlanCreate(BaseModel):
     installments_count: Optional[int] = None
     installments: Optional[List[dict]] = None
 
+# ============== STUDENT PORTAL MODELS ==============
+class StudentTopicProgress(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    lead_id: str
+    enrollment_id: str
+    program_id: str
+    curriculum_id: str
+    topic_index: int
+    topic_name: str
+    done: bool = True
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class StudentTopicProgressUpdate(BaseModel):
+    enrollment_id: str
+    program_id: str
+    curriculum_id: str
+    topic_index: int
+    topic_name: str
+    done: bool
+
+class StudentFeedback(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    lead_id: str
+    enrollment_id: str
+    student_name: str
+    student_email: Optional[str] = None
+    student_phone: Optional[str] = None
+    branch_id: str
+    program_id: Optional[str] = None
+    program_name: Optional[str] = None
+    message: str
+    rating: Optional[int] = None  # 1-5
+    is_read: bool = False
+    read_by: Optional[str] = None
+    read_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class StudentFeedbackCreate(BaseModel):
+    enrollment_id: str
+    message: str
+    program_id: Optional[str] = None
+    rating: Optional[int] = None
+
+class StudentLoginRequest(BaseModel):
+    enrollment_number: str
+    password: str
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
@@ -1442,6 +1491,44 @@ def require_role(allowed_roles: List[UserRole]):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return current_user
     return role_checker
+
+async def get_current_student(token: str = Depends(oauth2_scheme)):
+    """Resolve the current student from the JWT.
+    
+    Student JWTs use role='Student' and sub=enrollment_id (any one of the student's enrollments).
+    Returns a dict with student identity + branch + lead_id so downstream queries can fetch
+    all enrollments belonging to the same person.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate student credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("role") != "Student":
+            raise credentials_exception
+        enrollment_id = payload.get("sub")
+        if not enrollment_id:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    enrollment = await db.enrollments.find_one(
+        {"$or": [{"enrollment_id": enrollment_id}, {"id": enrollment_id}]},
+        {"_id": 0}
+    )
+    if not enrollment:
+        raise credentials_exception
+    
+    return {
+        "enrollment_id": enrollment.get("enrollment_id") or enrollment.get("id"),
+        "lead_id": enrollment.get("lead_id"),
+        "name": enrollment.get("student_name"),
+        "email": enrollment.get("email"),
+        "phone": enrollment.get("phone"),
+        "branch_id": enrollment.get("branch_id"),
+    }
 
 # Helper function to generate state/city codes
 def generate_state_code(state: str) -> str:
@@ -2415,6 +2502,246 @@ async def restore_lead_from_lost(lead_id: str, new_status: Optional[str] = "New"
         }}
     )
     return {"message": f"Lead restored to '{target_status}'", "status": target_status}
+
+
+# ============== STUDENT PORTAL ENDPOINTS ==============
+@api_router.post("/student-auth/login")
+async def student_login(payload: StudentLoginRequest):
+    """Student login. Username = enrollment_number, password = enrollment_number.
+    
+    Returns a JWT token and a list of all the student's enrolled programs.
+    """
+    enrollment_number = (payload.enrollment_number or "").strip()
+    password = (payload.password or "").strip()
+    
+    if not enrollment_number or not password:
+        raise HTTPException(status_code=400, detail="Enrollment number and password are required")
+    if enrollment_number != password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    enrollment = await db.enrollments.find_one(
+        {"$or": [{"enrollment_id": enrollment_number}, {"id": enrollment_number}]},
+        {"_id": 0}
+    )
+    if not enrollment:
+        raise HTTPException(status_code=401, detail="No enrollment found for this number")
+    if enrollment.get("status") == EnrollmentStatus.CANCELLED.value:
+        raise HTTPException(status_code=403, detail="This enrollment has been cancelled. Please contact your branch.")
+    
+    primary_id = enrollment.get("enrollment_id") or enrollment.get("id")
+    token = create_access_token(data={"sub": primary_id, "role": "Student"})
+    
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "student": {
+            "enrollment_id": primary_id,
+            "lead_id": enrollment.get("lead_id"),
+            "name": enrollment.get("student_name"),
+            "email": enrollment.get("email"),
+            "phone": enrollment.get("phone"),
+            "branch_id": enrollment.get("branch_id"),
+        }
+    }
+
+
+@api_router.get("/student/me")
+async def student_me(student: dict = Depends(get_current_student)):
+    return student
+
+
+@api_router.get("/student/my-curricula")
+async def student_my_curricula(student: dict = Depends(get_current_student)):
+    """Return curriculum + per-topic progress for every program the student is enrolled in."""
+    # All enrollments for this student (matched by lead_id — same person can have multiple programs)
+    enrollments = await db.enrollments.find(
+        {"lead_id": student["lead_id"], "status": {"$ne": EnrollmentStatus.CANCELLED.value}},
+        {"_id": 0}
+    ).to_list(50)
+    
+    results = []
+    for enr in enrollments:
+        prog_id = enr.get("program_id")
+        # Pick the most recent active curriculum for this program (prefer same branch first)
+        curriculum = await db.curricula.find_one(
+            {"program_id": prog_id, "branch_id": student["branch_id"]},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+        if not curriculum:
+            curriculum = await db.curricula.find_one(
+                {"program_id": prog_id}, {"_id": 0}, sort=[("created_at", -1)]
+            )
+        
+        # Fetch progress for this enrollment
+        progress_rows = []
+        if curriculum:
+            progress_rows = await db.student_topic_progress.find(
+                {"lead_id": student["lead_id"], "curriculum_id": curriculum.get("id")},
+                {"_id": 0}
+            ).to_list(500)
+        progress_map = {p["topic_index"]: p for p in progress_rows}
+        
+        topics_with_progress = []
+        if curriculum:
+            for idx, t in enumerate(curriculum.get("topics", []) or []):
+                p = progress_map.get(idx)
+                topics_with_progress.append({
+                    "topic_index": idx,
+                    "topic_name": t,
+                    "done": bool(p and p.get("done")),
+                    "updated_at": p.get("updated_at").isoformat() if p and isinstance(p.get("updated_at"), datetime) else (p.get("updated_at") if p else None),
+                })
+        
+        total_topics = len(topics_with_progress)
+        done_count = sum(1 for t in topics_with_progress if t["done"])
+        results.append({
+            "enrollment": {
+                "enrollment_id": enr.get("enrollment_id") or enr.get("id"),
+                "program_id": prog_id,
+                "program_name": enr.get("program_name"),
+                "enrollment_date": str(enr.get("enrollment_date")) if enr.get("enrollment_date") else None,
+                "status": enr.get("status"),
+                "final_fee": enr.get("final_fee"),
+                "total_paid": enr.get("total_paid"),
+            },
+            "curriculum": {
+                "id": curriculum.get("id") if curriculum else None,
+                "title": curriculum.get("title") if curriculum else None,
+                "description": curriculum.get("description") if curriculum else None,
+                "duration_weeks": curriculum.get("duration_weeks") if curriculum else None,
+                "available": bool(curriculum),
+            },
+            "topics": topics_with_progress,
+            "progress_percent": round((done_count / total_topics) * 100) if total_topics else 0,
+            "topics_done": done_count,
+            "topics_total": total_topics,
+        })
+    
+    return {"programs": results, "student": student}
+
+
+@api_router.post("/student/topic-progress")
+async def student_mark_topic(update: StudentTopicProgressUpdate, student: dict = Depends(get_current_student)):
+    """Toggle a curriculum topic as done/undone for the current student."""
+    # Verify the enrollment belongs to this student
+    enr = await db.enrollments.find_one(
+        {"$or": [{"enrollment_id": update.enrollment_id}, {"id": update.enrollment_id}],
+         "lead_id": student["lead_id"]},
+        {"_id": 0}
+    )
+    if not enr:
+        raise HTTPException(status_code=403, detail="Not your enrollment")
+    
+    primary_enrollment_id = enr.get("enrollment_id") or enr.get("id")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    
+    existing = await db.student_topic_progress.find_one({
+        "lead_id": student["lead_id"],
+        "curriculum_id": update.curriculum_id,
+        "topic_index": update.topic_index,
+    }, {"_id": 0})
+    
+    if existing:
+        await db.student_topic_progress.update_one(
+            {"id": existing["id"]},
+            {"$set": {"done": update.done, "topic_name": update.topic_name, "updated_at": now_iso}}
+        )
+    else:
+        rec = StudentTopicProgress(
+            lead_id=student["lead_id"],
+            enrollment_id=primary_enrollment_id,
+            program_id=update.program_id,
+            curriculum_id=update.curriculum_id,
+            topic_index=update.topic_index,
+            topic_name=update.topic_name,
+            done=update.done,
+        ).model_dump()
+        rec["updated_at"] = now_iso
+        await db.student_topic_progress.insert_one(rec)
+    
+    return {"success": True, "topic_index": update.topic_index, "done": update.done}
+
+
+@api_router.post("/student/feedback")
+async def student_submit_feedback(payload: StudentFeedbackCreate, student: dict = Depends(get_current_student)):
+    """Submit feedback that goes to the Branch Admin of the student's branch."""
+    if not payload.message or not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Feedback message is required")
+    if len(payload.message) > 5000:
+        raise HTTPException(status_code=400, detail="Feedback too long (max 5000 chars)")
+    
+    enr = await db.enrollments.find_one(
+        {"$or": [{"enrollment_id": payload.enrollment_id}, {"id": payload.enrollment_id}],
+         "lead_id": student["lead_id"]},
+        {"_id": 0}
+    )
+    if not enr:
+        raise HTTPException(status_code=403, detail="Not your enrollment")
+    
+    primary_enrollment_id = enr.get("enrollment_id") or enr.get("id")
+    
+    fb = StudentFeedback(
+        lead_id=student["lead_id"],
+        enrollment_id=primary_enrollment_id,
+        student_name=student["name"] or enr.get("student_name") or "Unknown",
+        student_email=student.get("email"),
+        student_phone=student.get("phone"),
+        branch_id=student["branch_id"] or enr.get("branch_id"),
+        program_id=payload.program_id or enr.get("program_id"),
+        program_name=enr.get("program_name"),
+        message=payload.message.strip(),
+        rating=payload.rating,
+    ).model_dump()
+    fb["created_at"] = fb["created_at"].isoformat()
+    await db.student_feedback.insert_one(fb)
+    return {"success": True, "id": fb["id"], "message": "Feedback sent to branch admin"}
+
+
+@api_router.get("/branch-admin/student-feedback")
+async def branch_admin_get_student_feedback(
+    only_unread: bool = False,
+    current_user: User = Depends(get_current_user)
+):
+    """List student feedback for the current Branch Admin (or all if Super Admin)."""
+    if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {}
+    if current_user.role == UserRole.BRANCH_ADMIN and current_user.branch_id:
+        query["branch_id"] = current_user.branch_id
+    if only_unread:
+        query["is_read"] = False
+    
+    feedback = await db.student_feedback.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    unread_count = sum(1 for f in feedback if not f.get("is_read"))
+    return {"feedback": feedback, "count": len(feedback), "unread": unread_count}
+
+
+@api_router.put("/branch-admin/student-feedback/{feedback_id}/read")
+async def branch_admin_mark_feedback_read(
+    feedback_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    fb = await db.student_feedback.find_one({"id": feedback_id}, {"_id": 0})
+    if not fb:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    if current_user.role == UserRole.BRANCH_ADMIN and fb.get("branch_id") != current_user.branch_id:
+        raise HTTPException(status_code=403, detail="Not your branch")
+    
+    await db.student_feedback.update_one(
+        {"id": feedback_id},
+        {"$set": {
+            "is_read": True,
+            "read_by": current_user.id,
+            "read_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    return {"success": True}
+
 
 @api_router.get("/leads/{lead_id}", response_model=Lead)
 async def get_lead(lead_id: str, current_user: User = Depends(get_current_user)):

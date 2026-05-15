@@ -40,6 +40,8 @@ import AuditLogsPage from '@/pages/AuditLogsPage';
 import InsightsPage from '@/pages/InsightsPage';
 import ResponsibilitiesPage from '@/pages/ResponsibilitiesPage';
 import LostLeadsPage from '@/pages/LostLeadsPage';
+import StudentLogin from '@/pages/StudentLogin';
+import StudentDashboard from '@/pages/StudentDashboard';
 import Layout from '@/components/Layout';
 import ActivityTracker from '@/components/ActivityTracker';
 import { Toaster } from '@/components/ui/sonner';
@@ -114,6 +116,8 @@ function App() {
         <ActivityTracker />
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/student/login" element={<StudentLogin />} />
+          <Route path="/student/dashboard" element={<StudentDashboard />} />
           <Route
             path="/"
             element={

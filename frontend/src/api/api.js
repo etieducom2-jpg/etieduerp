@@ -195,6 +195,42 @@ export const lostLeadsAPI = {
 export const branchAdminAPI = {
   getDemosToday: () => api.get('/branch-admin/demos-today'),
   getTrainerHeatmap: () => api.get('/branch-admin/trainer-heatmap'),
+  getStudentFeedback: (onlyUnread = false) =>
+    api.get('/branch-admin/student-feedback', { params: { only_unread: onlyUnread } }),
+  markFeedbackRead: (id) => api.put(`/branch-admin/student-feedback/${id}/read`),
+};
+
+export const studentAuthAPI = {
+  login: (enrollment_number, password) =>
+    axios.post(`${API_URL}/api/student-auth/login`, { enrollment_number, password }),
+};
+
+// Separate axios instance for student API calls — uses student_token + redirects to /student/login on 401
+const studentApi = axios.create({ baseURL: `${API_URL}/api` });
+studentApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('student_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+studentApi.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem('student_token');
+      localStorage.removeItem('student');
+      if (!window.location.pathname.startsWith('/student/login')) {
+        window.location.href = '/student/login';
+      }
+    }
+    return Promise.reject(err);
+  }
+);
+
+export const studentAPI = {
+  me: () => studentApi.get('/student/me'),
+  myCurricula: () => studentApi.get('/student/my-curricula'),
+  markTopic: (data) => studentApi.post('/student/topic-progress', data),
+  submitFeedback: (data) => studentApi.post('/student/feedback', data),
 };
 
 export const studentsAPI = {

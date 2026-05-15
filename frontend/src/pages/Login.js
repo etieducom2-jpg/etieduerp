@@ -136,6 +136,11 @@ const Login = () => {
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
+            <div className="text-center pt-2">
+              <a href="/student/login" className="text-sm text-emerald-700 hover:text-emerald-800 font-medium" data-testid="student-portal-link">
+                Are you a student? Sign in to the Student Portal →
+              </a>
+            </div>
           </form>
         </CardContent>
       </Card>

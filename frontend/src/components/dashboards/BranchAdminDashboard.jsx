@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Users, DollarSign, ArrowDownRight, Award, Calendar, CreditCard, GraduationCap, Gift, Phone, User, Clock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import TrainerHeatmap from './TrainerHeatmap';
+import StudentFeedbackCard from './StudentFeedbackCard';
 
 const safeNum = (val) => (Number.isFinite(val) ? val : 0);
 const safeAbs = (val) => Math.abs(safeNum(val));
@@ -93,6 +94,9 @@ const BranchAdminDashboard = ({
         loading={trainerHeatmapLoading}
         onRefresh={onRefreshTrainerHeatmap}
       />
+
+      {/* Student Feedback Inbox */}
+      <StudentFeedbackCard />
 
       {/* 1. Session Summary - TOP */}
       {sessionComparison && (
