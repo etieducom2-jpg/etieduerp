@@ -151,6 +151,8 @@ const AdminPanel = () => {
   const [whatsappLoading, setWhatsappLoading] = useState(false);
   const [testNumber, setTestNumber] = useState('');
   const [testLoading, setTestLoading] = useState(false);
+  const [testEvent, setTestEvent] = useState('enquiry_saved');
+  const [testResult, setTestResult] = useState(null);
   const [resetLoading, setResetLoading] = useState(false);
   const [branchDialog, setBranchDialog] = useState(false);
   const [programDialog, setProgramDialog] = useState(false);
@@ -336,14 +338,17 @@ const AdminPanel = () => {
   };
 
   const handleTestWhatsApp = async () => {
-    if (!testNumber) {
-      toast.error('Please enter a phone number');
-      return;
-    }
     setTestLoading(true);
+    setTestResult(null);
     try {
-      await whatsappAPI.sendTestMessage({ phone: testNumber });
-      toast.success('Test message sent successfully');
+      const res = await whatsappAPI.sendTestMessage({ event_type: testEvent });
+      setTestResult(res.data);
+      const ok = res.data?.msg91_result?.success;
+      if (ok) {
+        toast.success(`MSG91 accepted the request. Check your phone (test number override is active).`);
+      } else {
+        toast.error(`MSG91 rejected: ${JSON.stringify(res.data?.msg91_result?.error || res.data?.msg91_result)}`);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to send test message');
     } finally {
@@ -797,6 +802,9 @@ const AdminPanel = () => {
             testNumber={testNumber}
             setTestNumber={setTestNumber}
             testLoading={testLoading}
+            testEvent={testEvent}
+            setTestEvent={setTestEvent}
+            testResult={testResult}
             onSettingChange={handleWhatsAppSettingChange}
             onEventSettingChange={handleEventSettingChange}
             onSaveSettings={handleSaveWhatsAppSettings}

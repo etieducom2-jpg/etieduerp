@@ -123,6 +123,8 @@ export const analyticsAPI = {
 export const whatsappAPI = {
   getSettings: () => api.get('/admin/whatsapp-settings'),
   updateSettings: (data) => api.put('/admin/whatsapp-settings', data),
+  sendTestMessage: ({ event_type = 'enquiry_saved' } = {}) =>
+    api.post('/admin/whatsapp-test', null, { params: { event_type } }),
 };
 
 export const resourcesAPI = {

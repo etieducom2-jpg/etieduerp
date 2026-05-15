@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { MessageSquare, Send } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { MessageSquare, Send, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 
 const WhatsAppSettingsTab = ({ 
   whatsappSettings,
@@ -12,11 +13,15 @@ const WhatsAppSettingsTab = ({
   testNumber,
   setTestNumber,
   testLoading,
+  testEvent,
+  setTestEvent,
+  testResult,
   onSettingChange,
   onEventSettingChange,
   onSaveSettings,
   onTestMessage
 }) => {
+  const eventKeys = Object.keys(whatsappSettings.events || {});
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
@@ -136,23 +141,35 @@ const WhatsAppSettingsTab = ({
           </Card>
 
           {/* Test Message */}
-          <Card className="border-slate-200 shadow-soft">
+          <Card className="border-slate-200 shadow-soft" data-testid="whatsapp-test-card">
             <CardHeader>
               <CardTitle className="text-lg">Test Integration</CardTitle>
-              <p className="text-sm text-slate-500">Send a test message to verify your configuration</p>
+              <p className="text-sm text-slate-500">
+                Send a real test message to verify your MSG91 + template setup. If a global
+                <code className="bg-slate-100 px-1 mx-1 rounded text-xs">WHATSAPP_TEST_NUMBER</code>
+                is configured on the server, all messages (including this one) are redirected to it.
+              </p>
             </CardHeader>
-            <CardContent>
-              <div className="flex gap-3">
-                <Input
-                  value={testNumber}
-                  onChange={(e) => setTestNumber(e.target.value)}
-                  placeholder="Enter phone number (e.g., 919876543210)"
-                  className="flex-1"
-                  data-testid="test-number-input"
-                />
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <div className="space-y-1 md:col-span-2">
+                  <Label className="text-xs">Pick a template to test</Label>
+                  <Select value={testEvent} onValueChange={setTestEvent}>
+                    <SelectTrigger data-testid="test-event-select">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eventKeys.map((k) => (
+                        <SelectItem key={k} value={k}>
+                          {k.replace(/_/g, ' ')} — {whatsappSettings.events?.[k]?.template_name || '(no template)'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
                   onClick={onTestMessage}
-                  disabled={testLoading || !testNumber}
+                  disabled={testLoading}
                   className="bg-green-600 hover:bg-green-700"
                   data-testid="send-test-btn"
                 >
@@ -160,6 +177,49 @@ const WhatsAppSettingsTab = ({
                   {testLoading ? 'Sending...' : 'Send Test'}
                 </Button>
               </div>
+              
+              {testResult && (
+                <div className="border border-slate-200 rounded-lg p-3 bg-slate-50 text-xs space-y-2" data-testid="test-result-block">
+                  <div className="flex items-center gap-2">
+                    {testResult.msg91_result?.success
+                      ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      : <XCircle className="w-4 h-4 text-red-600" />}
+                    <span className={`font-semibold ${testResult.msg91_result?.success ? 'text-green-700' : 'text-red-700'}`}>
+                      MSG91: {testResult.msg91_result?.success ? 'Accepted' : 'Rejected'}
+                    </span>
+                    {testResult.msg91_result?.response?.request_id && (
+                      <span className="text-slate-500">
+                        request_id: <code>{testResult.msg91_result.response.request_id}</code>
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><span className="text-slate-500">Event:</span> <code>{testResult.debug?.event_type}</code></div>
+                    <div><span className="text-slate-500">Template:</span> <code>{testResult.debug?.template_name || '(empty)'}</code></div>
+                    <div><span className="text-slate-500">Namespace:</span> <code className="break-all">{testResult.debug?.namespace || '(empty)'}</code></div>
+                    <div><span className="text-slate-500">Integrated #:</span> <code>{testResult.debug?.integrated_number}</code></div>
+                    <div><span className="text-slate-500">Master enabled:</span> <code>{String(testResult.debug?.global_enabled)}</code></div>
+                    <div><span className="text-slate-500">Event enabled:</span> <code>{String(testResult.debug?.event_enabled)}</code></div>
+                    <div><span className="text-slate-500">MSG91 key set:</span> <code>{String(testResult.debug?.msg91_key_configured)}</code></div>
+                    <div><span className="text-slate-500">Recipient used:</span> <code>{testResult.debug?.recipient_used}</code></div>
+                  </div>
+                  {!testResult.msg91_result?.success && (
+                    <div className="bg-red-50 border border-red-200 rounded p-2 mt-2">
+                      <p className="text-red-700"><AlertTriangle className="inline w-3 h-3 mr-1" />MSG91 error:</p>
+                      <pre className="whitespace-pre-wrap text-red-800">{typeof testResult.msg91_result?.error === 'string' ? testResult.msg91_result.error : JSON.stringify(testResult.msg91_result?.error, null, 2)}</pre>
+                    </div>
+                  )}
+                  {testResult.msg91_result?.success && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-2 mt-1 text-amber-800">
+                      <AlertTriangle className="inline w-3 h-3 mr-1" />
+                      MSG91 accepted the request. If you don't receive the WhatsApp message,
+                      it usually means: (1) the template isn't <b>Approved</b> on MSG91, or
+                      (2) the namespace/integrated-number doesn't match your MSG91 account.
+                      Check the MSG91 dashboard → Delivery Reports → search by request_id.
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </>

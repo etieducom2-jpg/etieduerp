@@ -4975,6 +4975,59 @@ async def get_whatsapp_settings_api(current_user: User = Depends(require_role([U
     settings = await get_whatsapp_settings()
     return settings
 
+@api_router.post("/admin/whatsapp-test")
+async def whatsapp_test_send(
+    event_type: str = "enquiry_saved",
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Manually fire a WhatsApp test message for a given event.
+    Honours WHATSAPP_TEST_NUMBER override. Returns the raw MSG91 response so we can debug.
+    """
+    sample_data = {
+        "name": "Test User",
+        "course": "Basics of Computer",
+        "demo_date": datetime.now().strftime("%d %b %Y"),
+        "demo_time": "11:00 AM",
+        "trainer": "Test Trainer",
+        "enrollment_number": "ETI-TEST-001",
+        "amount": "5000",
+        "total_fee": "15000",
+        "paid_fee": "5000",
+        "pending_fee": "10000",
+        "receipt_number": "RCPT-TEST-001",
+        "amount_due": "10000",
+        "due_date": (datetime.now() + timedelta(days=7)).strftime("%d %b %Y"),
+        "certificate_id": "ETI-CERT-TEST-001",
+    }
+    
+    settings = await get_whatsapp_settings()
+    event_config = settings.events.get(event_type, {})
+    
+    debug_info = {
+        "event_type": event_type,
+        "global_enabled": settings.enabled,
+        "event_enabled": event_config.get("enabled", False),
+        "template_name": event_config.get("template_name", ""),
+        "namespace": event_config.get("namespace", ""),
+        "integrated_number": settings.integrated_number,
+        "msg91_key_configured": bool(os.environ.get("MSG91_AUTH_KEY")),
+        "test_number_override": os.environ.get("WHATSAPP_TEST_NUMBER", "(not set)"),
+        "recipient_used": os.environ.get("WHATSAPP_TEST_NUMBER", "917973706853"),
+    }
+    
+    # Force-send even if global enabled is false, by calling send_whatsapp_template_with_config directly
+    if not settings.enabled:
+        # Temporarily flip enabled in memory just to allow this manual test
+        settings.enabled = True
+    
+    result = await send_whatsapp_notification(
+        phone_number=os.environ.get("WHATSAPP_TEST_NUMBER", "917973706853"),
+        event_type=event_type,
+        template_data=sample_data,
+    )
+    
+    return {"debug": debug_info, "msg91_result": result}
+
 @api_router.put("/admin/whatsapp-settings")
 async def update_whatsapp_settings(
     settings_update: WhatsAppSettingsUpdate, 
