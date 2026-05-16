@@ -367,7 +367,14 @@ export const certificateAPI = {
   update: (id, data) => api.put(`/certificate-requests/${id}`, data),
   approve: (id) => api.post(`/certificate-requests/${id}/approve`),
   reject: (id, reason) => api.post(`/certificate-requests/${id}/reject`, null, { params: { reason } }),
-  delete: (id) => api.delete(`/certificate-requests/${id}`),
+  delete: (id) =>
+    api.delete(`/certificate-requests/${id}`).catch((err) => {
+      // Some CDNs/proxies strip DELETE — fall back to POST alias
+      if (err.response?.status === 405 || err.response?.status === 501) {
+        return api.post(`/certificate-requests/${id}/delete`);
+      }
+      throw err;
+    }),
   download: (id) => api.post(`/certificate-requests/${id}/download`),
 };
 

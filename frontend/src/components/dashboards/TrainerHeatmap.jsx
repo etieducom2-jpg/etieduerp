@@ -23,11 +23,41 @@ const TrainerHeatmap = ({ data, loading, onRefresh }) => {
   if (loading) {
     return (
       <Card className="border-slate-200" data-testid="trainer-heatmap-card">
-        <CardContent className="p-8 text-center text-slate-500">Loading trainer schedule…</CardContent>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-indigo-500" />
+            Trainer Load &amp; Availability Heatmap
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6 text-center text-slate-500">
+          <RefreshCw className="w-4 h-4 inline-block mr-2 animate-spin" />
+          Loading trainer schedule…
+        </CardContent>
       </Card>
     );
   }
-  if (!data) return null;
+  if (!data) {
+    return (
+      <Card className="border-slate-200" data-testid="trainer-heatmap-card">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-semibold text-slate-700 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-indigo-500" />
+              Trainer Load &amp; Availability Heatmap
+            </CardTitle>
+            {onRefresh && (
+              <Button variant="ghost" size="sm" onClick={onRefresh} className="h-7 px-2" data-testid="trainer-heatmap-refresh">
+                <RefreshCw className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-6 text-center text-slate-500">
+          Couldn't load trainer schedule. Click refresh to try again.
+        </CardContent>
+      </Card>
+    );
+  }
 
   const { hours = [], trainers = [], ai_summary, ai_powered, totals = {} } = data;
 

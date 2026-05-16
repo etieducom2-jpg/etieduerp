@@ -2372,8 +2372,8 @@ async def get_leads(
     if status:
         query["status"] = status
     else:
-        # Hide Lost leads from the main list unless explicitly filtered for them
-        query["status"] = {"$ne": LeadStatus.LOST.value}
+        # Hide Lost leads from the main list unless explicitly filtered for them (case-insensitive)
+        query["status"] = {"$not": {"$regex": "^lost$", "$options": "i"}}
     if source:
         query["lead_source"] = source
     if program_id:
@@ -2445,31 +2445,42 @@ async def get_deleted_leads(current_user: User = Depends(require_role([UserRole.
     return [Lead(**lead) for lead in leads]
 
 # Lost Leads - must be before /leads/{lead_id}
-@api_router.get("/leads/lost", response_model=List[Lead])
+@api_router.get("/leads/lost")
 async def get_lost_leads(current_user: User = Depends(get_current_user)):
-    """Get leads marked as Lost. Visible to Admin, Branch Admin, and Counsellor."""
+    """Get leads marked as Lost. Visible to Admin, Branch Admin, and Counsellor.
+    
+    Returns raw lead dicts (not Lead model) so that legacy records missing some optional
+    fields still show up. Case-insensitive status match catches 'lost', 'LOST', 'Lost'.
+    """
     if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN, UserRole.COUNSELLOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    query = {"status": LeadStatus.LOST.value, "is_deleted": {"$ne": True}}
+    query = {
+        "status": {"$regex": "^lost$", "$options": "i"},
+        "is_deleted": {"$ne": True},
+    }
     
     if current_user.role != UserRole.ADMIN and current_user.branch_id:
         query["branch_id"] = current_user.branch_id
     
-    # Counsellor sees only their own lost leads (created by them OR assigned to them)
+    # Counsellor sees own lost leads OR unassigned ones in their branch
     if current_user.role == UserRole.COUNSELLOR:
         query["$or"] = [
             {"created_by": current_user.id},
             {"counsellor_id": current_user.id},
+            {"counsellor_id": {"$in": [None, ""]}},
         ]
     
-    leads = await db.leads.find(query, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+    leads = await db.leads.find(query, {"_id": 0}).sort("updated_at", -1).to_list(2000)
+    # Normalize: ensure 'status' is always 'Lost' in the response so the UI tag is consistent
     for lead in leads:
-        if isinstance(lead.get('created_at'), str):
-            lead['created_at'] = datetime.fromisoformat(lead['created_at'])
-        if isinstance(lead.get('updated_at'), str):
-            lead['updated_at'] = datetime.fromisoformat(lead['updated_at'])
-    return [Lead(**lead) for lead in leads]
+        lead["status"] = "Lost"
+        # Ensure datetimes are serialised
+        for f in ("created_at", "updated_at"):
+            v = lead.get(f)
+            if isinstance(v, datetime):
+                lead[f] = v.isoformat()
+    return leads
 
 @api_router.put("/leads/{lead_id}/restore-from-lost")
 async def restore_lead_from_lost(lead_id: str, new_status: Optional[str] = "New", current_user: User = Depends(get_current_user)):
@@ -4656,8 +4667,10 @@ async def create_payment(payment: PaymentCreate, request: Request, current_user:
         )
         if installment:
             installment_amount = installment.get('amount', 0)
-            # Only Branch Admin can pay less than installment amount (critical cases)
-            if payment.amount < installment_amount and current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN]:
+            # Branch Admin, Admin, AND Front Desk can record payments below the installment
+            # amount (FDE handles real-world cases where student brings partial cash today
+            # and rest tomorrow). Other roles (e.g. Counsellor) must pay full amount.
+            if payment.amount < installment_amount and current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN, UserRole.FRONT_DESK]:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Payment amount (₹{payment.amount}) is less than installment amount (₹{installment_amount}). Please pay the full installment amount or contact Branch Admin for special cases."
@@ -6984,64 +6997,14 @@ async def assign_student_to_batch(batch_id: str, data: StudentBatchAssignmentCre
 
 @api_router.delete("/batches/{batch_id}/remove-student/{enrollment_id}")
 async def remove_student_from_batch(batch_id: str, enrollment_id: str, current_user: User = Depends(get_current_user)):
-    """Remove a student from a batch - FDE needs Branch Admin approval"""
+    """Remove a student from a batch.
+    
+    Allowed for Admin, Branch Admin, and Front Desk Executive (FDE can remove directly,
+    no approval gate needed — same powers as Branch Admin for batch composition).
+    """
     if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN, UserRole.FRONT_DESK]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    # If FDE is trying to remove, create approval request instead of direct removal
-    if current_user.role == UserRole.FRONT_DESK:
-        # Get student and batch details for the request
-        assignment = await db.student_batch_assignments.find_one({
-            "batch_id": batch_id,
-            "enrollment_id": enrollment_id
-        })
-        if not assignment:
-            raise HTTPException(status_code=404, detail="Assignment not found")
-        
-        enrollment = await db.enrollments.find_one({"id": enrollment_id}, {"_id": 0})
-        batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
-        lead = await db.leads.find_one({"id": enrollment.get("lead_id")}, {"_id": 0}) if enrollment else None
-        
-        # Create approval request
-        request_id = str(uuid.uuid4())
-        approval_request = {
-            "id": request_id,
-            "type": "batch_removal",
-            "batch_id": batch_id,
-            "batch_name": batch.get("name") if batch else "Unknown",
-            "enrollment_id": enrollment_id,
-            "student_name": lead.get("name") if lead else "Unknown",
-            "requested_by": current_user.id,
-            "requested_by_name": current_user.name,
-            "branch_id": current_user.branch_id,
-            "status": "pending",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await db.approval_requests.insert_one(approval_request)
-        
-        # Notify Branch Admin
-        branch_admins = await db.users.find({
-            "branch_id": current_user.branch_id,
-            "role": UserRole.BRANCH_ADMIN.value,
-            "is_active": True
-        }).to_list(10)
-        
-        for admin in branch_admins:
-            notification = {
-                "id": str(uuid.uuid4()),
-                "user_id": admin["id"],
-                "type": "approval_request",
-                "title": "Batch Removal Request",
-                "message": f"{current_user.name} requested to remove {lead.get('name') if lead else 'a student'} from batch {batch.get('name') if batch else batch_id}",
-                "data": {"request_id": request_id},
-                "read": False,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.notifications.insert_one(notification)
-        
-        return {"message": "Removal request sent to Branch Admin for approval", "request_id": request_id}
-    
-    # Branch Admin or Super Admin can remove directly
     result = await db.student_batch_assignments.delete_one({
         "batch_id": batch_id,
         "enrollment_id": enrollment_id
@@ -10344,6 +10307,17 @@ async def delete_certificate_request(
         raise HTTPException(status_code=404, detail="Certificate request not found")
     
     return {"message": "Certificate request deleted. Student can now submit a new request."}
+
+
+# POST alias for delete – some hosting providers (Cloudflare, certain CDNs / corporate proxies)
+# strip the DELETE method. This alias lets the UI fall back to a plain POST that performs the
+# same deletion when DELETE is blocked.
+@api_router.post("/certificate-requests/{request_id}/delete")
+async def delete_certificate_request_post(
+    request_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    return await delete_certificate_request(request_id, current_user)
 
 
 @api_router.post("/certificate-requests/{request_id}/download")

@@ -80,10 +80,15 @@ const CertificateManagementPage = () => {
 
   const handleUpdate = async () => {
     try {
-      await certificateAPI.update(selectedRequest.id, editFormData);
-      toast.success('Certificate request updated');
+      const res = await certificateAPI.update(selectedRequest.id, editFormData);
+      // Re-fetch the single record to ensure UI reflects the persisted state
+      try {
+        const fresh = await certificateAPI.getOne(selectedRequest.id);
+        setSelectedRequest(fresh.data);
+      } catch (_) {}
+      toast.success('Saved. Changes will appear on the certificate.');
       setEditDialog(false);
-      fetchRequests();
+      await fetchRequests();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update');
     }
