@@ -41,20 +41,25 @@ const fmtDateTime = (iso) => {
 };
 
 const TERMS = [
-  'Fees once paid are non-refundable and non-transferable.',
-  'Certificates shall be issued only after successful course completion and clearance of all dues.',
-  'ETI Educom™ provides placement assistance only; employment is not guaranteed.',
-  'This receipt is valid only with the authorized signature and official seal of ETI Educom™.',
-  'In case of cheque bounce, a penalty of ₹500 will be applicable.',
-  'Students must maintain 75% attendance to be eligible for certification.',
-  'For any queries, please contact our support team within 7 days of payment.',
+  'Fees once paid are strictly non-refundable, non-transferable, and non-adjustable against any other course, student, or branch under any circumstances.',
+  'The full course fee (or the agreed installment amount) must be paid on or before the due date mentioned. A late payment charge of ₹100 per day (max ₹2,000) will be levied on delayed installments.',
+  'In case of cheque / auto-debit / UPI mandate bounce or dishonor, a penalty of ₹500 per instance will be applicable and must be cleared before the next class.',
+  'Enrollment stands cancelled automatically if two consecutive installments remain unpaid for 15+ days; the student loses access to classes, LMS, and placement services.',
+  'This receipt is a system-generated computer receipt and does not require a physical signature, but is valid only when accompanied by a valid Enrollment ID / Student ID.',
+  'Fee revisions announced by the management for future batches / sessions do not affect this receipt; already-paid amounts remain locked to the original quoted fee.',
+  'Discounts, scholarships, and referral credits (if any) are already reflected in the "Total Course Fee" above and cannot be claimed retrospectively.',
+  'Certificates and marksheets shall be issued only after successful course completion, clearance of all dues, minimum 75% attendance, and passing the internal / external examination.',
+  'ETI Educom™ provides placement assistance and interview support; final employment, package, and location are subject to the recruiter\'s decision and are not guaranteed.',
+  'Any dispute arising out of this transaction shall be subject to the exclusive jurisdiction of the courts at the branch city mentioned above.',
+  'Please retain this receipt for your records — a duplicate copy may be issued only against a written request and a nominal administrative fee of ₹100.',
+  'For refund/adjustment queries covered under exceptional circumstances (e.g. batch cancellation by the institute), raise a written request to accounts@etieducom.com within 7 days of payment.',
 ];
 
 export function printFeeReceipt(r = {}) {
   const printWindow = window.open('', '', 'height=1000,width=900');
   if (!printWindow) return;
 
-  const logoUrl = 'https://etieducom.com/wp-content/uploads/2024/03/eti-educom-logo.png';
+  const logoUrl = 'https://customer-assets.emergentagent.com/job_4e0bdddc-c844-4374-a91a-dfbddecb14b1/artifacts/4ane8ulw_eti%20.png';
   const balance = Number(r.balance_fee ?? ((r.total_fee || 0) - (r.total_paid || 0)));
   const nextDue = r.next_installment_due_date ? fmtDate(r.next_installment_due_date) : '—';
   const generatedTs = fmtDateTime(r.generated_at || new Date().toISOString());
