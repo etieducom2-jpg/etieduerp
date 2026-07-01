@@ -1,6 +1,17 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+// Normalize the backend URL - ensure it has a protocol (https://)
+// This prevents "404 Not Found" errors when the env var is set without a scheme
+const normalizeUrl = (url) => {
+  if (!url) return '';
+  let u = String(url).trim().replace(/\/+$/, ''); // strip trailing slashes
+  if (!/^https?:\/\//i.test(u)) {
+    u = `https://${u}`;
+  }
+  return u;
+};
+
+const API_URL = normalizeUrl(process.env.REACT_APP_BACKEND_URL);
 export const BACKEND_URL = API_URL;
 
 const api = axios.create({
@@ -101,7 +112,7 @@ export const brandAPI = {
 
 // Public (no-auth) endpoints used by clients to view shared content plans.
 // Uses axios directly with no Authorization header.
-const PUBLIC_BASE = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const PUBLIC_BASE = `${API_URL}/api`;
 export const publicBrandAPI = {
   getPlan: (token) => axios.get(`${PUBLIC_BASE}/public/brand-plan/${token}`),
   respond: (token, payload) => axios.post(`${PUBLIC_BASE}/public/brand-plan/${token}/respond`, payload),

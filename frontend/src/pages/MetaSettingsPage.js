@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { adminAPI, metaAPI } from '@/api/api';
+import { adminAPI, metaAPI, BACKEND_URL } from '@/api/api';
 import { Facebook, Instagram, Settings, Plus, Check, X, Copy, ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react';
 
 const MetaSettingsPage = () => {
@@ -30,7 +30,7 @@ const MetaSettingsPage = () => {
     access_token: ''
   });
 
-  const API_URL = process.env.REACT_APP_BACKEND_URL;
+  const API_URL = BACKEND_URL;
 
   useEffect(() => {
     fetchData();

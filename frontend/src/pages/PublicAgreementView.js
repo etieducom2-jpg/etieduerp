@@ -8,7 +8,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Printer, ShieldCheck, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 
-const BACKEND = process.env.REACT_APP_BACKEND_URL;
+import { BACKEND_URL } from '@/api/api';
+const BACKEND = BACKEND_URL;
 
 const PublicAgreementView = () => {
   const { token } = useParams();

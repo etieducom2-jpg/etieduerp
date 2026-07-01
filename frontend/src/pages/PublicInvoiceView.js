@@ -4,7 +4,8 @@ import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Printer, Download } from 'lucide-react';
 
-const BACKEND = process.env.REACT_APP_BACKEND_URL;
+import { BACKEND_URL } from '@/api/api';
+const BACKEND = BACKEND_URL;
 const fmtINR = (n) =>
   '₹' +
   (Number(n) || 0).toLocaleString('en-IN', {

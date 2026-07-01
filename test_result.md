@@ -101,3 +101,96 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Test the login flow end-to-end at the deployed URL https://erp-preview-build-4.preview.emergentagent.com to verify the 'Not Found' login bug fix. The bug was caused by REACT_APP_BACKEND_URL being set without a protocol (e.g. bms.etieducom.com instead of https://bms.etieducom.com), causing axios to treat it as a relative path resulting in 404 errors."
+
+backend:
+  - task: "Auth Login API Endpoint"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Tested /api/auth/login endpoint via curl with form-encoded credentials (admin@etieducom.com/admin@123/session=2026). Endpoint returned 200 OK with valid access_token and user object showing Super Admin role. No issues detected."
+
+  - task: "URL Normalization Fix in api.js"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/api/api.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Verified normalizeUrl function (lines 5-12) correctly prepends https:// when REACT_APP_BACKEND_URL lacks protocol. Tested with Playwright - no URL duplication detected in network requests. All API calls correctly go to https://erp-preview-build-4.preview.emergentagent.com/api/* without path duplication."
+
+frontend:
+  - task: "Login Flow - No 'Not Found' Toast"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/api/api.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Tested complete login flow with Playwright. Filled credentials (admin@etieducom.com/admin@123/2026), clicked Sign In. No 'Not Found' toast appeared. Successfully redirected to dashboard (/) without errors. Zero 404 errors in network tab."
+
+  - task: "Dashboard Redirect After Login"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "After successful login, user is correctly redirected from /login to / (dashboard). Current URL verified as https://erp-preview-build-4.preview.emergentagent.com/ after authentication."
+
+  - task: "Dashboard User Info Display"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/components/*"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Dashboard correctly displays 'Super Admin' and 'admin@etieducom.com' in the header/user section. User information properly loaded from authentication response."
+
+  - task: "Authenticated Request - Leads Page"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/api/api.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Tested authenticated navigation to /leads page after login. Page loaded successfully with no 401 or 404 errors. Leads page content verified with indicators present (Lead, Status). Authentication token properly included in requests."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: true
+
+test_plan:
+  current_focus:
+    - "All tasks tested and verified"
+  stuck_tasks: []
+  test_all: true
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: "Completed comprehensive end-to-end testing of login flow bug fix. All tests PASSED. Backend /api/auth/login endpoint working correctly (200 OK with valid token). Frontend URL normalization fix working - no URL duplication or 404 errors detected. Login flow successful with proper redirect to dashboard showing correct user info (Super Admin, admin@etieducom.com). Authenticated requests working (tested Leads page - no 401/404 errors). The 'Not Found' bug is FIXED. Test credentials documented in /app/memory/test_credentials.md. Screenshots saved: /app/dashboard_success.png and /app/leads_page.png."
