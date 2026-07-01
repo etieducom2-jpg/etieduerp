@@ -14,6 +14,7 @@ import { Plus, ChevronRight, ChevronLeft, UserPlus, CreditCard, FileText, Eye, P
 import { format } from 'date-fns';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { printFeeReceipt } from '@/utils/printFeeReceipt';
+import { printEnrollmentConfirmation } from '@/utils/printEnrollmentConfirmation';
 
 const PAYMENT_MODES = ['Cash', 'Card', 'UPI', 'Net Banking', 'Cheque'];
 
@@ -185,6 +186,53 @@ const EnrollmentsPage = () => {
       toast.error(errorMessage);
     } finally {
       setDeleteLoading(false);
+    }
+  };
+
+  const handlePrintEnrollmentConfirmation = async (enrollment) => {
+    try {
+      // Fetch payment plan (may be null if not created yet)
+      let paymentPlan = null;
+      try {
+        const planRes = await enrollmentAPI.getPaymentPlan(enrollment.id);
+        paymentPlan = planRes?.data || null;
+      } catch (_) {
+        // ignore — enrollment may not have a plan yet
+      }
+
+      // Find branch details — fetch on demand
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+      let branchInfo = {};
+      if (enrollment.branch_id) {
+        try {
+          const branchesRes = await adminAPI.getBranches();
+          branchInfo = (branchesRes?.data || []).find((b) => b.id === enrollment.branch_id) || {};
+        } catch (_) { /* branch fetch optional */ }
+      }
+
+      // Find original lead for parent info
+      let leadInfo = {};
+      try {
+        const leadRes = await leadsAPI.getOne(enrollment.lead_id);
+        leadInfo = leadRes?.data || {};
+      } catch (_) { /* lead fetch optional */ }
+
+      // Program to get duration if not on enrollment
+      const program = programs.find((p) => p.id === enrollment.program_id) || {};
+
+      printEnrollmentConfirmation({
+        enrollment: {
+          ...enrollment,
+          program_duration: enrollment.program_duration || program.duration || '',
+        },
+        paymentPlan,
+        branch: branchInfo,
+        lead: leadInfo,
+        currentUser,
+      });
+    } catch (error) {
+      console.error('Print confirmation error:', error);
+      toast.error('Failed to open print preview');
     }
   };
 
@@ -681,6 +729,15 @@ const EnrollmentsPage = () => {
                                 data-testid={`view-payments-btn-${enrollment.id}`}
                               >
                                 <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handlePrintEnrollmentConfirmation(enrollment)}
+                                title="Print Enrollment Confirmation"
+                                data-testid={`print-confirmation-btn-${enrollment.id}`}
+                              >
+                                <Printer className="w-4 h-4 text-blue-600" />
                               </Button>
                             </div>
                           </td>
