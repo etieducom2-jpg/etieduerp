@@ -534,7 +534,7 @@ const UserEfficiencyPage = () => {
                 <div className="text-center py-8">
                   <Brain className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                   <p className="text-slate-500">AI analysis not available</p>
-                  <p className="text-sm text-slate-400">Ensure Emergent LLM key is configured</p>
+                  <p className="text-sm text-slate-400">Ensure AI service is configured</p>
                 </div>
               </CardContent>
             </Card>
