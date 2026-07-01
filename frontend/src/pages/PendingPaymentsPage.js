@@ -15,6 +15,8 @@ const PendingPaymentsPage = () => {
   const [pendingPayments, setPendingPayments] = useState([]);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [filters, setFilters] = useState({
     start_date: '',
     end_date: '',
@@ -62,6 +64,7 @@ const PendingPaymentsPage = () => {
       ]);
       setPendingPayments(pendingRes.data);
       setBranches(branchesRes.data);
+      setCurrentPage(1); // reset to first page whenever data is refreshed
     } catch (error) {
       toast.error('Failed to fetch pending payments');
     } finally {
@@ -236,11 +239,11 @@ const PendingPaymentsPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {pendingPayments.map((payment, index) => (
+                {pendingPayments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE).map((payment, index) => (
                   <tr 
-                    key={`${payment.enrollment_id}-${payment.installment_number || 'onetime'}-${index}`} 
+                    key={`${payment.enrollment_id}-${payment.installment_number || 'onetime'}-${(currentPage - 1) * PAGE_SIZE + index}`} 
                     className={`hover:bg-slate-50 ${payment.is_overdue ? 'bg-red-50' : ''}`}
-                    data-testid={`pending-row-${index}`}
+                    data-testid={`pending-row-${(currentPage - 1) * PAGE_SIZE + index}`}
                   >
                     <td className="px-4 py-3">
                       <p className="font-medium">{payment.student_name}</p>
@@ -303,6 +306,54 @@ const PendingPaymentsPage = () => {
               </div>
             )}
           </div>
+          {/* Pagination */}
+          {pendingPayments.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between px-2 py-3 border-t border-slate-200 mt-2">
+              <p className="text-sm text-slate-600">
+                Showing <span className="font-semibold">{(currentPage - 1) * PAGE_SIZE + 1}</span>
+                {' '}to <span className="font-semibold">{Math.min(currentPage * PAGE_SIZE, pendingPayments.length)}</span>
+                {' '}of <span className="font-semibold">{pendingPayments.length}</span> pending payments
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                >
+                  First
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-slate-700 px-2">
+                  Page <span className="font-semibold">{currentPage}</span> of{' '}
+                  <span className="font-semibold">{Math.max(1, Math.ceil(pendingPayments.length / PAGE_SIZE))}</span>
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage((p) => Math.min(Math.ceil(pendingPayments.length / PAGE_SIZE), p + 1))}
+                  disabled={currentPage >= Math.ceil(pendingPayments.length / PAGE_SIZE)}
+                >
+                  Next
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage(Math.ceil(pendingPayments.length / PAGE_SIZE))}
+                  disabled={currentPage >= Math.ceil(pendingPayments.length / PAGE_SIZE)}
+                >
+                  Last
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

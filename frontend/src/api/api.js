@@ -328,6 +328,7 @@ export const studentsAPI = {
   cancelEnrollment: (id, reason) => api.put(`/students/${id}/cancel`, null, { params: { reason } }),
   updateStatus: (id, status, reason) => api.put(`/students/${id}/status`, null, { params: { status, reason } }),
   updateDetails: (id, data) => api.put(`/students/${id}/update`, data),
+  permanentDelete: (id, reason = '') => api.delete(`/students/${id}/permanent`, { params: { reason } }),
   addAddonCourse: (enrollmentId, data) => api.post(`/enrollments/${enrollmentId}/add-on-course`, data),
   getAddonCourses: (enrollmentId) => api.get(`/enrollments/${enrollmentId}/add-on-courses`),
   getBatches: (enrollmentId) => api.get(`/students/${enrollmentId}/batches`),

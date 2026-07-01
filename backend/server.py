@@ -5402,6 +5402,10 @@ async def get_pending_payments(
         session_filter = get_session_filter(session_val, "enrollment_date")
         branch_filter.update(session_filter)
     
+    # Exclude Dropped / Cancelled / Inactive enrollments from pending payments —
+    # their pending fee should NOT show up as an outstanding due.
+    branch_filter["status"] = {"$nin": ["Dropped", "Cancelled", "Inactive"]}
+
     # Get all enrollments for the branch
     enrollments = await db.enrollments.find(branch_filter, {"_id": 0}).to_list(10000)
     
@@ -9022,8 +9026,10 @@ async def update_student_details(enrollment_id: str, data: StudentUpdateModel, c
             if 'fee_quoted' not in update_data:
                 update_data['fee_quoted'] = program.get('fee', 0)
     
-    # Recalculate final_fee if discount or fee is changed
-    if any(k in update_data for k in ['discount_percent', 'discount_amount', 'fee_quoted']):
+    # Recalculate final_fee if discount or fee is changed AND final_fee is NOT explicitly provided by the user.
+    # This preserves manual final_fee edits by Branch Admin.
+    final_fee_explicit = 'final_fee' in update_data
+    if not final_fee_explicit and any(k in update_data for k in ['discount_percent', 'discount_amount', 'fee_quoted']):
         fee_quoted = update_data.get('fee_quoted', enrollment.get('fee_quoted', 0))
         discount_amount = update_data.get('discount_amount', enrollment.get('discount_amount', 0)) or 0
         discount_percent = update_data.get('discount_percent', enrollment.get('discount_percent', 0)) or 0
@@ -9077,6 +9083,87 @@ async def update_enrollment_status(enrollment_id: str, status: str, reason: str 
     await db.enrollments.update_one({"id": enrollment_id}, {"$set": update_data})
     
     return {"message": f"Enrollment status updated to {status}"}
+
+
+@api_router.delete("/students/{enrollment_id}/permanent")
+async def permanently_delete_student(
+    enrollment_id: str,
+    reason: str = "",
+    current_user: User = Depends(get_current_user)
+):
+    """Permanently delete a Dropped/Cancelled student — Branch Admin/Admin only.
+    Only allowed if NO fee has been received for this enrollment (total_paid == 0).
+    Also removes related payment plans, installment schedules, batch assignments, attendance, and add-ons.
+    """
+    if current_user.role not in [UserRole.ADMIN, UserRole.BRANCH_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Branch Admin or Admin can permanently delete a student")
+
+    enrollment = await db.enrollments.find_one({"id": enrollment_id}, {"_id": 0})
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Branch access check
+    if current_user.role == UserRole.BRANCH_ADMIN and enrollment.get('branch_id') != current_user.branch_id:
+        raise HTTPException(status_code=403, detail="You can only delete students from your branch")
+
+    # Enrollment must be in a terminal non-active state
+    if enrollment.get('status') not in ("Dropped", "Cancelled", "Inactive"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only Dropped / Cancelled / Inactive students can be permanently deleted. Change the status first."
+        )
+
+    # Reject if any fee has been received
+    payments_agg = await db.payments.aggregate([
+        {"$match": {"enrollment_id": enrollment_id}},
+        {"$group": {"_id": None, "total_paid": {"$sum": "$amount"}, "count": {"$sum": 1}}}
+    ]).to_list(1)
+    total_paid = (payments_agg[0]["total_paid"] if payments_agg else 0) or 0
+    payment_count = (payments_agg[0]["count"] if payments_agg else 0) or 0
+
+    if total_paid > 0 or payment_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete: ₹{int(total_paid)} has already been received against this student across {payment_count} payment(s). Refund/adjust first."
+        )
+
+    student_label = enrollment.get('student_name') or enrollment.get('enrollment_id') or enrollment_id
+
+    # Cascade delete related records
+    plans = await db.payment_plans.find({"enrollment_id": enrollment_id}, {"_id": 0, "id": 1}).to_list(100)
+    plan_ids = [p['id'] for p in plans]
+    if plan_ids:
+        await db.installment_schedule.delete_many({"payment_plan_id": {"$in": plan_ids}})
+    await db.payment_plans.delete_many({"enrollment_id": enrollment_id})
+    await db.student_batch_assignments.delete_many({"enrollment_id": enrollment_id})
+    await db.attendance.delete_many({"enrollment_id": enrollment_id})
+    await db.addon_courses.delete_many({"enrollment_id": enrollment_id})
+    await db.course_completions.delete_many({"enrollment_id": enrollment_id})
+
+    # Finally, delete the enrollment
+    await db.enrollments.delete_one({"id": enrollment_id})
+
+    # Audit log
+    try:
+        await db.audit_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": current_user.id,
+            "user_email": current_user.email,
+            "user_name": current_user.name,
+            "user_role": current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role),
+            "branch_id": enrollment.get('branch_id'),
+            "action": "permanent_delete",
+            "entity_type": "student",
+            "entity_id": enrollment_id,
+            "entity_name": student_label,
+            "changes": {"reason": reason, "status_at_delete": enrollment.get('status')},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass
+
+    return {"message": f"Student '{student_label}' permanently deleted"}
+
 
 # Add-on Course Endpoints
 @api_router.post("/enrollments/{enrollment_id}/add-on-course")

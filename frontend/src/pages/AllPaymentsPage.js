@@ -18,6 +18,8 @@ const AllPaymentsPage = () => {
   const [payments, setPayments] = useState([]);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [editDialog, setEditDialog] = useState(false);
   const [editingPayment, setEditingPayment] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -52,6 +54,7 @@ const AllPaymentsPage = () => {
       ]);
       setPayments(paymentsRes.data);
       setBranches(branchesRes.data);
+      setCurrentPage(1);
     } catch (error) {
       toast.error('Failed to fetch payments');
     } finally {
@@ -273,7 +276,7 @@ const AllPaymentsPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {payments.map((payment) => (
+                {payments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE).map((payment) => (
                   <tr key={payment.id} className="hover:bg-slate-50" data-testid={`payment-row-${payment.id}`}>
                     <td className="px-4 py-3">
                       <span className="font-mono text-sm">{payment.receipt_number || payment.id?.slice(0, 8).toUpperCase()}</span>
@@ -344,6 +347,26 @@ const AllPaymentsPage = () => {
               </div>
             )}
           </div>
+          {/* Pagination */}
+          {payments.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between px-2 py-3 border-t border-slate-200 mt-2">
+              <p className="text-sm text-slate-600">
+                Showing <span className="font-semibold">{(currentPage - 1) * PAGE_SIZE + 1}</span>
+                {' '}to <span className="font-semibold">{Math.min(currentPage * PAGE_SIZE, payments.length)}</span>
+                {' '}of <span className="font-semibold">{payments.length}</span> payments
+              </p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setCurrentPage(1)} disabled={currentPage === 1}>First</Button>
+                <Button size="sm" variant="outline" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
+                <span className="text-sm text-slate-700 px-2">
+                  Page <span className="font-semibold">{currentPage}</span> of{' '}
+                  <span className="font-semibold">{Math.max(1, Math.ceil(payments.length / PAGE_SIZE))}</span>
+                </span>
+                <Button size="sm" variant="outline" onClick={() => setCurrentPage((p) => Math.min(Math.ceil(payments.length / PAGE_SIZE), p + 1))} disabled={currentPage >= Math.ceil(payments.length / PAGE_SIZE)}>Next</Button>
+                <Button size="sm" variant="outline" onClick={() => setCurrentPage(Math.ceil(payments.length / PAGE_SIZE))} disabled={currentPage >= Math.ceil(payments.length / PAGE_SIZE)}>Last</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

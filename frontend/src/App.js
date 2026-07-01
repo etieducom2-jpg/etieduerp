@@ -18,6 +18,7 @@ import AllPaymentsPage from '@/pages/AllPaymentsPage';
 import PendingPaymentsPage from '@/pages/PendingPaymentsPage';
 import DeletedLeadsPage from '@/pages/DeletedLeadsPage';
 import StudentsPage from '@/pages/StudentsPage';
+import DroppedStudentsPage from '@/pages/DroppedStudentsPage';
 import InternationalExamsPage from '@/pages/InternationalExamsPage';
 import TasksPage from '@/pages/TasksPage';
 import QuizExamsPage from '@/pages/QuizExamsPage';
@@ -287,6 +288,14 @@ function App() {
             element={
               <PrivateRoute fdaOnly>
                 <Layout><StudentsPage /></Layout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/dropped-students"
+            element={
+              <PrivateRoute branchAdminOnly>
+                <Layout><DroppedStudentsPage /></Layout>
               </PrivateRoute>
             }
           />

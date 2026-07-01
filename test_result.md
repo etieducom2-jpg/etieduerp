@@ -102,9 +102,69 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Test the login flow end-to-end at the deployed URL https://erp-preview-build-4.preview.emergentagent.com to verify the 'Not Found' login bug fix. The bug was caused by REACT_APP_BACKEND_URL being set without a protocol (e.g. bms.etieducom.com instead of https://bms.etieducom.com), causing axios to treat it as a relative path resulting in 404 errors."
+user_problem_statement: "Test backend endpoint changes for Tasks 2, 3, 4, 6: (1) Inactive user login block, (2) Final fee persistence fix, (3) Permanent delete of dropped students, (4) Pending payments filter excluding Dropped/Cancelled/Inactive statuses."
 
 backend:
+  - task: "Task 4 - Inactive User Login Block"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "FULLY TESTED AND PASSING. Created test user (Counsellor role), verified initial login succeeds. Deactivated user via PUT /api/admin/users/{id}/status with is_active=false. Login attempt returned 403 with correct message 'Your account has been deactivated. Please contact your administrator.' Reactivated user with is_active=true, login succeeded with 200 + token. Implementation at lines 2053-2054 correctly checks is_active flag in login endpoint."
+
+  - task: "Task 3 - Final Fee Persistence Fix"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "FULLY TESTED AND PASSING. Created enrollment with fee_quoted=50000, discount=10%, final_fee=45000. Test 1: Updated only final_fee to 40000 - persisted correctly (not recalculated). Test 2: Updated final_fee=42000 + fee_quoted=50000 together - explicit final_fee (42000) preserved. Test 3: Updated only discount_percent=20 - final_fee correctly recalculated to 40000 (50000 * 0.8). Implementation at lines 9029-9042 correctly checks if final_fee is explicitly provided via 'final_fee_explicit' flag."
+
+  - task: "Task 2 - Permanent Delete of Dropped Student"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "FULLY TESTED AND PASSING. Test 1: Created enrollment, marked Dropped, deleted with 0 payments - returned 200 success, subsequent GET returned 404 (correctly deleted). Test 2: Tried to delete Active enrollment - returned 400 with message 'Only Dropped / Cancelled / Inactive students can be permanently deleted'. Test 3: Created enrollment, marked Dropped, added payment (₹5000), tried to delete - returned 400 with message 'Cannot delete: ₹5000 has already been received against this student across 1 payment(s)'. All guards working correctly. Implementation at lines 9088-9165."
+
+  - task: "Task 6 - Pending Payments Filter"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "FULLY TESTED AND PASSING. Created Active enrollment with unpaid fee - appeared in GET /api/payments/pending. Marked as Dropped - no longer appeared in pending payments. Tested same for Cancelled status - correctly excluded. Tested same for Inactive status - correctly excluded. Implementation at line 5407 correctly filters with status: {$nin: ['Dropped', 'Cancelled', 'Inactive']}."
+
+  - task: "Existing Endpoints Health Check"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "TESTED AND PASSING. GET /api/payments/all returned 200 with list. GET /api/students?status=Dropped returned 200 with list. GET /api/students (all) returned 200 with list. All existing endpoints remain healthy."
+
   - task: "Auth Login API Endpoint"
     implemented: true
     working: true
@@ -180,17 +240,17 @@ frontend:
 
 metadata:
   created_by: "testing_agent"
-  version: "1.0"
-  test_sequence: 1
-  run_ui: true
+  version: "2.0"
+  test_sequence: 2
+  run_ui: false
 
 test_plan:
   current_focus:
-    - "All tasks tested and verified"
+    - "All backend tasks tested and verified"
   stuck_tasks: []
   test_all: true
   test_priority: "high_first"
 
 agent_communication:
   - agent: "testing"
-    message: "Completed comprehensive end-to-end testing of login flow bug fix. All tests PASSED. Backend /api/auth/login endpoint working correctly (200 OK with valid token). Frontend URL normalization fix working - no URL duplication or 404 errors detected. Login flow successful with proper redirect to dashboard showing correct user info (Super Admin, admin@etieducom.com). Authenticated requests working (tested Leads page - no 401/404 errors). The 'Not Found' bug is FIXED. Test credentials documented in /app/memory/test_credentials.md. Screenshots saved: /app/dashboard_success.png and /app/leads_page.png."
+    message: "Completed comprehensive backend API testing for Tasks 2, 3, 4, 6. ALL TESTS PASSED (29/29 - 100% success rate). Task 4 (Inactive user login block): Fully working - 403 returned with correct message when deactivated user tries to login. Task 3 (Final fee persistence): Fully working - explicit final_fee values are preserved and not recalculated. Task 2 (Permanent delete): Fully working - all guards in place (status check, payment check, role check). Task 6 (Pending payments filter): Fully working - Dropped/Cancelled/Inactive enrollments correctly excluded from pending payments. All existing endpoints remain healthy. Test file: /app/backend_test.py. No issues found."

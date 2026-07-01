@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, BarChart3, LogOut, Menu, X, Bell, FileText, Settings, Folder, CreditCard, Clock, Trash2, Wallet, FileSpreadsheet, GraduationCap, Globe, ClipboardList, CheckSquare, BookOpen, Award, Building2, UsersRound, Target, MessageSquare, Banknote, Brain, DollarSign, History, Facebook, Shield, Calendar, Ban, TrendingUp, TrendingDown, Flame } from 'lucide-react';
+import { LayoutDashboard, Users, BarChart3, LogOut, Menu, X, Bell, FileText, Settings, Folder, CreditCard, Clock, Trash2, Wallet, FileSpreadsheet, GraduationCap, Globe, ClipboardList, CheckSquare, BookOpen, Award, Building2, UsersRound, Target, MessageSquare, Banknote, Brain, DollarSign, History, Facebook, Shield, Calendar, Ban, TrendingUp, TrendingDown, Flame, UserX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -121,6 +121,8 @@ const Layout = ({ children }) => {
     { icon: FileSpreadsheet, label: 'Enrollments', path: '/enrollments', show: isBranchAdmin || isFDE },
     // 4. Students - For Branch Admin and FDE
     { icon: GraduationCap, label: 'Students', path: '/students', show: isSuperAdmin || isBranchAdmin || isFDE },
+    // 4.5 Dropped Students - For Branch Admin and Admin
+    { icon: UserX, label: 'Dropped Students', path: '/dropped-students', show: isSuperAdmin || isBranchAdmin },
     // 5. All Payments - For Branch Admin and FDE
     { icon: CreditCard, label: 'All Payments', path: '/all-payments', show: isBranchAdmin || isFDE },
     // 6. Pending Payments - For Branch Admin and FDE
