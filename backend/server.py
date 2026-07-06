@@ -16799,6 +16799,23 @@ async def startup_event():
         await seed_default_users()
     except Exception as e:
         logger.error(f"Error seeding default users: {e}")
+
+    # One-time cleanup: registration_number was removed from the certificate spec
+    # (previously auto-generated from `count_documents + 1`, which collided across
+    # concurrent creates and deletes, giving multiple students the same value).
+    # Wipe any lingering legacy values so re-downloaded PDFs & verify page never
+    # show them. Idempotent — a no-op once all rows are already blank.
+    try:
+        purge = await db.certificate_requests.update_many(
+            {"registration_number": {"$nin": ["", None]}},
+            {"$set": {"registration_number": ""}}
+        )
+        if purge.modified_count:
+            logger.info(
+                f"Cleared legacy registration_number on {purge.modified_count} certificate(s)"
+            )
+    except Exception as e:
+        logger.error(f"Error purging legacy registration_number: {e}")
     
     # Schedule fee reminders to run daily at 9:00 AM
     scheduler.add_job(
