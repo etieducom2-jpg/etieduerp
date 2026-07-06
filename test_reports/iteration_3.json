@@ -1,0 +1,55 @@
+{
+  "summary": "Verified both bug fixes: (1) GET /api/programs returns 200 with all 8 seeded programs including max_discount_percent (previously 500). (2) Certificate module now uses a Program dropdown (8 programs + Custom option) in both Manual Create and Edit dialogs; hardcoded 'MS-Office Suite Specialist' remapping is REMOVED - 'Advanced Excel' stays 'Advanced Excel' throughout DOM, GET, download payload, and PDF drawing. Manual Create end-to-end works. However, discovered a NEW regression while testing Edit->Save: clicking Save throws an uncaught React runtime error ('Objects are not valid as a React child') because backend returns 422 (frontend sends training_hours=''  which is not int|null) and toast.error() tries to render the Pydantic error array directly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "CertificateManagementPage - Edit dialog",
+        "issue": "Clicking Save (cert-edit-save) causes an uncaught React runtime error: 'Objects are not valid as a React child (found: object with keys {type, loc, msg, input, url})'. Root cause = handleUpdate passes error.response.data.detail directly to toast.error; when backend responds 422 the detail is an ARRAY of Pydantic error objects, not a string.",
+        "selector": "[data-testid=\"cert-edit-save\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "CertificateManagementPage - Edit dialog init (line 808)",
+        "issue": "setEditFormData sets `training_hours: request.training_hours || ''`. Empty string is then sent to backend PUT which requires int|null -> 422 int_parsing error. Fix: use `request.training_hours ?? null` (or normalize '' -> null on submit).",
+        "selector": "[data-testid=\"cert-edit-training-hours\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Certificate Edit -> Save",
+        "issue": "Save button appears to succeed silently (toast never renders because the app crashes), and the underlying PUT /api/certificate-requests/{id} returns 422 due to training_hours='' payload. Backend PUT itself works fine when training_hours is null (verified). So the fix is purely frontend.",
+        "affected_selectors": ["[data-testid=\"cert-edit-save\"]", "[data-testid=\"cert-edit-training-hours\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_3_programs_and_cert.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "In CertificateManagementPage.js line 808: change `training_hours: request.training_hours || ''` to `training_hours: request.training_hours ?? null`.",
+    "In handleUpdate (line 150) and other toast.error calls: coerce non-string errors, e.g. `const msg = Array.isArray(d) ? d.map(e => e.msg).join(', ') : (typeof d === 'string' ? d : 'Failed to update'); toast.error(msg);` to prevent React crash on 422 responses.",
+    "Consider the same defensive fix in handleReject / handleDelete / createManual error branches too (any place doing toast.error(error.response?.data?.detail || ...))."
+  ],
+  "critical_code_review_comments": [
+    "toast.error(error.response?.data?.detail || 'Failed to update') anti-pattern appears across CertificateManagementPage; FastAPI 422 responses always come back with detail as a list of objects and will crash the app when rendered.",
+    "Edit dialog's initial payload builder converts null numeric fields to '' which then fails backend validation - null vs '' normalization is missing.",
+    "handleUpdate silently swallows the fresh getOne() error (empty catch) - if that call fails after a successful PUT the UI still fires success toast; consider logging or surfacing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration_3_programs_and_cert.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "80% (manual create + download + dropdown all working; edit-save flow crashes)"},
+  "test_credentials": "Admin: admin@etieducom.com / admin@123 (from /app/memory/test_credentials.md, confirmed working).",
+  "seed_data_creation": "Created one certificate 'ETI-2026-00001' for student 'Bug Verify User' with program 'Advanced Excel' during manual UI flow test; and pytest creates+deletes TEST_Iter3 User cert automatically. Backend cert row for 'Bug Verify User' remains (approved) - kept to avoid wiping user-visible data.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both requested bug fixes are verified working end-to-end (programs dropdown, no hardcoded certificate title remap). A NEW frontend bug was uncovered in the Edit->Save flow (toast.error crash + training_hours='' payload). After main agent patches the two-liner in CertificateManagementPage.js, re-run just the Edit->Save Playwright step (pick 'Tally & GST' from cert-edit-program-select, click cert-edit-save, expect toast success + row shows 'Tally & GST'). Backend PUT already verified to persist Tally & GST correctly.",
+  "rca of the issue": "Frontend handleUpdate: (a) Line 808 seeds editFormData with training_hours = request.training_hours || '' (empty string when null). (b) On Save, PUT /api/certificate-requests/{id} rejects '' with 422 int_parsing. (c) Line 150 toast.error(error.response?.data?.detail || 'Failed to update') hands the raw ARRAY of Pydantic error dicts to react-hot-toast which passes it as children; React can't render a plain object -> uncaught runtime error. Mitigation: normalize empty->null on submit AND coerce error.detail to string before displaying."
+}

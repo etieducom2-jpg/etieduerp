@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 2 tests: MSG91 WhatsApp LIVE + Counsellor Cockpit. Backend: 7/7 pytest cases passed. Frontend: cockpit renders for counsellor with all required data-testids, KPI/demo/followup/overdue rows populated, lead-detail navigation works, and admin correctly does NOT get the cockpit.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Lead detail (navigated from demo row)", "issues": ["React hydration warnings: <span> inside <tbody> and <tr>. Not part of cockpit feature but visible in console — worth cleaning up eventually."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration_2_msg91_and_cockpit.py",
+    "/app/test_reports/pytest/iteration_2.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "MSG91 live sends succeed: enquiry_saved & demo_booked both return success=true with non-empty request_id (verified real MSG91 API call).",
+    "Admin-only guard on /api/admin/whatsapp-test correctly returns 403 for counsellor.",
+    "Placement Manager (non-counsellor/admin/branch-admin) correctly gets 403 on /api/analytics/counsellor-dashboard-enhanced.",
+    "scheduled_demos + upcoming_followups shapes exactly match spec; sorted asc; windowed to [today, today+7d] and (today, today+7d] respectively.",
+    "Old counsellor dashboards (counsellor-dashboard / counsellor-action-dashboard / counsellor-performance-panel) are no longer rendered — only CounsellorCockpit shows for counsellor role.",
+    "Minor: hydration warning on lead detail page (<span> inside <tbody>) — pre-existing, unrelated to this iteration."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration_2_msg91_and_cockpit.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin admin@etieducom.com/admin@123; Counsellor priya@eti.com/priya@123; login uses OAuth2 form (username/password fields).",
+  "seed_data_creation": "Used existing seed (9 leads with seed_demo:true, 7 followups, 2 enrollments) owned by priya@eti.com. Not deleted per instructions.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test file /app/backend/tests/test_iteration_2_msg91_and_cockpit.py can be re-run for regression. Login endpoint /api/auth/login uses form-encoded data with 'username' field, not JSON with 'email'. Template_name for demo_booked event is inside response.debug.template_name (not top-level). Real MSG91 sends are performed — expect a small fee/usage each run.",
+  "rca of the issue": "n/a"
+}

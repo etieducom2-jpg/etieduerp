@@ -1,0 +1,9 @@
+export { default as BranchesTab } from './BranchesTab';
+export { default as ProgramsTab } from './ProgramsTab';
+export { default as SessionsTab } from './SessionsTab';
+export { default as ExpenseCategoriesTab } from './ExpenseCategoriesTab';
+export { default as LeadSourcesTab } from './LeadSourcesTab';
+export { default as UsersTab } from './UsersTab';
+export { default as WhatsAppSettingsTab } from './WhatsAppSettingsTab';
+export { default as ExamsTab } from './ExamsTab';
+export { default as SystemSettingsTab } from './SystemSettingsTab';

@@ -1,0 +1,31 @@
+{
+  "summary": "All 4 certificate-module fixes verified end-to-end. Backend: (1) manual-create + PUT edit persists all fields (student_name, program_name, program_duration, program_start_date, program_end_date, training_hours, branch_name, registration_number) and POST /download returns those edited values verbatim; (2) POST /download does NOT trigger WhatsApp (log grep confirmed) and still transitions Approved->Ready; (3) POST /mark-printed on Ready cert fires certificate_ready template (MSG91 200 + request_id logged); (4) POST /mark-printed also works directly on an Approved cert (Approved -> Printed in one step) and fires WhatsApp. WHATSAPP_TEST_MODE redirect line ([WHATSAPP TEST MODE] Redirecting message for 'certificate_ready' from ... -> 918800747989) is emitted. DB whatsapp_settings.events.certificate_ready.variables is ['course','name','certificate_id'] as required. Frontend: Mark Printed button is visible with 'Mark Printed' label, uses data-testid='cert-mark-printed-{id}', shown ONLY on Approved/Ready rows (verified: hidden on ETI-2026-00002 Printed row), clicking it accepts a confirm() dialog, backend fires WhatsApp, and row flips to Printed. Manual create dialog works and Advanced Excel program stays 'Advanced Excel' end-to-end. 3/3 pytest backend tests pass. Iteration-3's Edit->Save crash is now resolved (training_hours normalises '' -> null on line 1124 and editFormData seeds `?? null` on line 838).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Certificate Management table (all pages using this Layout)", "issues": ["Pre-existing React hydration warning (span cannot be child of tbody/tr) coming from the 'x-ve-dynamic' wrapper injected by tooling. Not introduced by this iteration but pollutes the console."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_certificate_mark_printed.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "download_certificate returns raw string fields directly; if an older cert row is missing program_start_date/program_end_date, this KeyError-crashes the endpoint. Consider `.get(..., '')` for those (currently indexed with []).",
+    "mark_certificate_printed swallows WhatsApp send errors with only a log line — fine, but consider surfacing a warning in the response payload so the UI can show 'Marked printed, but notification failed'.",
+    "Frontend PDF renderer relies on `training_hours` truthiness; 0 hours would be silently dropped. Acceptable for now but noting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_certificate_mark_printed.py (new)"
+  ],
+  "success_rate": {"backend": "100% (3/3 pytest passed)", "frontend": "100% (Mark Printed visibility rules, click flow, status update, and manual create all verified)"},
+  "test_credentials": "Admin: admin@etieducom.com / admin@123",
+  "seed_data_creation": "Kept existing ETI-2026-00001 (Ready) and ETI-2026-00002 (Printed) as instructed. pytest creates+deletes TEST_Iter4 certs. Playwright UI test created ETI-2026-00003 TEST_Iter4 UITest and deleted it via /delete alias. No leftover test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All four user-reported certificate bugs are fixed and verified. Backend tests live at /app/backend/tests/test_certificate_mark_printed.py — reuse them for regression. Note pytest.ini in /app/backend uses xdist by default; pass `-o addopts=''` if running a single test.",
+  "rca of the issue": "N/A — no unresolved issue."
+}

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="12.829" timestamp="2026-07-06T09:52:24.541705+00:00" hostname="agent-env-4225467a-d3f9-4195-b937-1e981b3b2b0e"><testcase classname="tests.test_certificate_mark_printed.TestCertificatePrintFlow" name="test_whatsapp_settings_variable_order" time="0.554"><failure message="AssertionError: {&quot;detail&quot;:&quot;Not Found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">tests/test_certificate_mark_printed.py:76: in test_whatsapp_settings_variable_order
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Not Found"}
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_certificate_mark_printed.TestCertificatePrintFlow" name="test_full_flow_edit_download_markprinted" time="7.355" /><testcase classname="tests.test_certificate_mark_printed.TestCertificatePrintFlow" name="test_mark_printed_directly_on_approved" time="4.856" /></testsuite></testsuites>

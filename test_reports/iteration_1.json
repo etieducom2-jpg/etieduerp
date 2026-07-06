@@ -1,0 +1,37 @@
+{
+  "summary": "Comprehensive backend + frontend test of Certificate Manual Create & Full-field Edit persistence. All 13 backend pytest cases PASSED and end-to-end UI flow (login → create × 2 for same student → edit persistence after reload → PNG download → status Ready) PASSED. Persistence bug fix (is_manually_edited / is_manually_created short-circuit in _enrich_certificate_with_live_data) is verified across list, get, download and public verify.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "CertificateManagementPage (and Dashboard)", "issues": ["React hydration warning: <span data-ve-dynamic=\"true\"> wrapper is being rendered as a child of <tbody>/parent of <tr>, causing HTML validation warnings in console. Cosmetic only, no functional impact. Likely caused by the visual-editor `<span>` wrappers around dynamic list items."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_certificate_manual_and_edit.py",
+    "/app/test_reports/pytest/cert_manual_edit.xml"
+  ],
+  "action_items": [
+    "(Optional) Fix hydration warning by not wrapping <tr> in a <span> when data-ve-dynamic wrapper is applied inside <tbody> — purely cosmetic.",
+    "No functional action items — both new features (manual create + full-field editable persistence) work correctly and are ready to git-pull to live."
+  ],
+  "critical_code_review_comments": [
+    "server.py is very large (16k+ lines). Consider splitting the certificate module into a router file for maintainability (non-blocking).",
+    "generate_registration_number in manual create uses count_documents(); under concurrent creates this can collide. Consider a Mongo counter/uuid-based scheme.",
+    "Enrichment correctly short-circuits on is_manually_edited/is_manually_created — verified in list/get/download/verify paths."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_certificate_manual_and_edit.py (new)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (all UI flows passed)"},
+  "test_credentials": "admin@etieducom.com / admin@123 ; placement@etieducom.com / placement@123 used as non-cert role proxy for 403 tests",
+  "seed_data_creation": "Test data created during runs (UI_Student_*, EDITED_NAME_*, TEST_*) was cleaned up post-test via DELETE /api/certificate-requests/{id}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend suite lives at /app/backend/tests/test_certificate_manual_and_edit.py; run with `pytest /app/backend/tests/test_certificate_manual_and_edit.py -v`. It self-cleans created certs via module-scope teardown. Uses REACT_APP_BACKEND_URL from env. Placement Manager is used to prove non-cert role gets 403 (Counsellor/FDE/Branch Admin share the same code path in `if current_user.role not in [ADMIN, CERTIFICATE_MANAGER]` guard).",
+  "rca of the issue": "Original bug: _enrich_certificate_with_live_data overwrote edited fields from source collections on every read. Fix: added early-return `if cert.get('is_manually_edited') or cert.get('is_manually_created'): return cert`. PUT endpoint now sets is_manually_edited=True on every edit; POST /manual sets both flags. Verified end-to-end: edits made via PUT survive subsequent GET (single & list), download payload, and public verify response."
+}
