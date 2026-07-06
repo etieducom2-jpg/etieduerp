@@ -35,12 +35,14 @@ const CertificateRequestPage = () => {
         phone: response.data.phone || ''
       });
       
-      // Initialize selected courses state
+      // Initialize selected courses state — pre-fill start_date with the
+      // student's enrollment date so it isn't blank by default.
       const initialSelection = {};
       response.data.courses.forEach(course => {
+        const enrolIso = (course.enrollment_date || '').substring(0, 10);
         initialSelection[course.enrollment_id] = {
           selected: false,
-          start_date: '',
+          start_date: enrolIso || '',
           end_date: '',
           training_mode: 'Offline',
           training_hours: ''

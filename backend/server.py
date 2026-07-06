@@ -12718,10 +12718,11 @@ async def create_certificate_request(request_data: CertificateRequestCreate):
     branch = await db.branches.find_one({"id": enrollment['branch_id']}, {"_id": 0, "name": 1})
     program = await db.programs.find_one({"id": enrollment.get('program_id')}, {"_id": 0, "name": 1, "duration": 1}) if enrollment.get('program_id') else None
     
-    # Generate IDs
+    # Generate IDs — registration_number has been removed from the product.
+    # We keep only certificate_id + enrollment_number as identifiers on the certificate.
     certificate_id = await generate_certificate_id()
     verification_id = await generate_verification_id()
-    registration_number = f"ETI-STU-{str(await db.certificate_requests.count_documents({}) + 1).zfill(4)}"
+    registration_number = ""
     
     # Create certificate request
     cert_request = CertificateRequest(
@@ -12890,12 +12891,11 @@ async def create_manual_certificate(
         if branch:
             branch_name = branch.get("name", "")
 
-    # Auto-generate identifiers when not supplied.
+    # Auto-generate identifiers when not supplied. Registration number is no longer
+    # part of the certificate — we only rely on certificate_id + enrollment_number.
     certificate_id = payload.certificate_id or await generate_certificate_id()
     verification_id = await generate_verification_id()
-    registration_number = payload.registration_number or (
-        f"ETI-STU-{str(await db.certificate_requests.count_documents({}) + 1).zfill(4)}"
-    )
+    registration_number = ""
 
     # Try to link an enrollment_id if the enrollment_number matches an existing one.
     enrollment_db_id = ""
@@ -12947,7 +12947,6 @@ async def create_manual_certificate(
         "id": cert_dict['id'],
         "certificate_id": certificate_id,
         "verification_id": verification_id,
-        "registration_number": registration_number,
         "status": initial_status,
     }
 
@@ -13128,6 +13127,7 @@ async def download_certificate(request_id: str, current_user: User = Depends(get
     # crash the endpoint with a KeyError.
     return {
         "certificate_id": cert_request.get('certificate_id', ''),
+        "enrollment_number": cert_request.get('enrollment_number', ''),
         "student_name": cert_request.get('student_name', ''),
         "program_name": cert_request.get('program_name', ''),
         "program_duration": cert_request.get('program_duration', ''),
@@ -13136,7 +13136,6 @@ async def download_certificate(request_id: str, current_user: User = Depends(get
         "training_hours": cert_request.get('training_hours', None),
         "program_start_date": cert_request.get('program_start_date', ''),
         "program_end_date": cert_request.get('program_end_date', ''),
-        "registration_number": cert_request.get('registration_number', ''),
         "verification_id": cert_request.get('verification_id', ''),
         "issued_date": datetime.now().strftime("%d-%m-%Y")
     }
@@ -13233,13 +13232,13 @@ async def verify_certificate(verification_id: str):
         "message": "Certificate is authentic and verified",
         "certificate_details": {
             "certificate_id": cert['certificate_id'],
+            "enrollment_number": cert.get('enrollment_number', ''),
             "student_name": cert['student_name'],
             "program_name": cert['program_name'],
             "program_duration": cert['program_duration'],
             "branch_name": cert['branch_name'],
             "training_mode": cert['training_mode'],
             "issued_date": cert.get('issued_at', ''),
-            "registration_number": cert['registration_number']
         }
     }
 

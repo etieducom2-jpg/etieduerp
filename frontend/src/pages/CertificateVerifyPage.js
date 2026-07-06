@@ -107,7 +107,13 @@ const CertificateVerifyPage = () => {
                 </div>
 
                 <p className="text-center text-sm text-slate-500">
-                  Registration: {result.certificate_details.registration_number}
+                  Certificate ID: {result.certificate_details.certificate_id}
+                  {result.certificate_details.enrollment_number ? (
+                    <>
+                      <span className="mx-2">•</span>
+                      Enrollment: {result.certificate_details.enrollment_number}
+                    </>
+                  ) : null}
                 </p>
               </div>
             ) : (

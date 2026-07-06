@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { FileText, Download, CheckCircle, XCircle, Eye, Edit, Clock, Award, QrCode, Trash2, Printer } from 'lucide-react';
+import { FileText, Download, CheckCircle, XCircle, Eye, Edit, Clock, Award, QrCode, Trash2, Printer, Search, Loader2 } from 'lucide-react';
 import { certificateAPI, adminAPI } from '@/api/api';
 
 // Coerce any error.response.data.detail shape (string | array of Pydantic errors
@@ -43,6 +43,7 @@ const CertificateManagementPage = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState(initialStatus);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [editDialog, setEditDialog] = useState(false);
   const [viewDialog, setViewDialog] = useState(false);
@@ -51,6 +52,7 @@ const CertificateManagementPage = () => {
   const [editFormData, setEditFormData] = useState({});
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [manualDialog, setManualDialog] = useState(false);
+  const [manualLookupLoading, setManualLookupLoading] = useState(false);
   const [manualFormData, setManualFormData] = useState({
     student_name: '',
     program_name: '',
@@ -64,7 +66,6 @@ const CertificateManagementPage = () => {
     training_mode: 'Offline',
     training_hours: '',
     enrollment_number: '',
-    registration_number: '',
     certificate_id: '',
     initial_status: 'Approved',
   });
@@ -190,10 +191,48 @@ const CertificateManagementPage = () => {
       training_mode: 'Offline',
       training_hours: '',
       enrollment_number: '',
-      registration_number: '',
       certificate_id: '',
       initial_status: 'Approved',
     });
+  };
+
+  // When Cert Manager enters an enrollment number in the manual dialog,
+  // pull the student + branch + course details from the same public endpoint
+  // the student portal uses, so most fields fill themselves and only the
+  // course (if the student has multiple) needs to be picked.
+  const handleManualEnrollmentLookup = async () => {
+    const enr = (manualFormData.enrollment_number || '').trim();
+    if (!enr) {
+      toast.error('Please enter an enrollment number to fetch details');
+      return;
+    }
+    setManualLookupLoading(true);
+    try {
+      const res = await certificateAPI.getEnrollmentInfo(enr);
+      const data = res.data || {};
+      // Prefer the exact enrollment the user typed, else the first course.
+      const course =
+        (data.courses || []).find((c) => c.enrollment_id === enr) ||
+        (data.courses || [])[0] ||
+        {};
+      const enrollmentDateIso = (course.enrollment_date || '').substring(0, 10);
+      setManualFormData((prev) => ({
+        ...prev,
+        student_name: data.student_name || prev.student_name,
+        email: data.email || prev.email,
+        phone: data.phone || prev.phone,
+        branch_name: data.branch_name || prev.branch_name,
+        branch_id: data.branch_id || prev.branch_id,
+        program_name: course.program_name || prev.program_name,
+        program_duration: course.program_duration || prev.program_duration,
+        program_start_date: enrollmentDateIso || prev.program_start_date,
+      }));
+      toast.success('Student details fetched. Please review course & dates.');
+    } catch (error) {
+      toast.error(humanizeError(error, 'Enrollment not found'));
+    } finally {
+      setManualLookupLoading(false);
+    }
   };
 
   const handleManualCreate = async () => {
@@ -460,12 +499,14 @@ const CertificateManagementPage = () => {
     const leftMargin = 200;
     const rightMargin = canvas.width - 200;
     
-    // LEFT - Registration Details (Larger)
+    // LEFT - Certificate / Enrollment identifiers (Registration Number has been removed)
     ctx.textAlign = 'left';
     ctx.font = 'bold 32px Arial, sans-serif';
     ctx.fillStyle = '#1e3a5f';
-    ctx.fillText(`Registration No.: ${certData.registration_number || 'ETI-STU-0000'}`, leftMargin, bottomY);
-    ctx.fillText(`Certificate ID: ${certData.certificate_id}`, leftMargin, bottomY + 55);
+    ctx.fillText(`Certificate ID: ${certData.certificate_id}`, leftMargin, bottomY);
+    if (certData.enrollment_number) {
+      ctx.fillText(`Enrollment No.: ${certData.enrollment_number}`, leftMargin, bottomY + 55);
+    }
     ctx.fillText(`Date of Issue: ${certData.issued_date}`, leftMargin, bottomY + 110);
     ctx.font = '28px Arial, sans-serif';
     ctx.fillStyle = '#555555';
@@ -650,6 +691,25 @@ const CertificateManagementPage = () => {
   const readyCount = requests.filter(r => r.status === 'Ready').length;
   const printedCount = requests.filter(r => r.status === 'Printed').length;
 
+  // Client-side search across student name, enrollment number and phone.
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleRequests = normalizedQuery
+    ? requests.filter((r) => {
+        const bag = [
+          r.student_name,
+          r.enrollment_number,
+          r.phone,
+          r.email,
+          r.certificate_id,
+          r.program_name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return bag.includes(normalizedQuery);
+      })
+    : requests;
+
   return (
     <Layout>
       <div className="space-y-6" data-testid="certificate-management-page">
@@ -725,17 +785,41 @@ const CertificateManagementPage = () => {
           </Card>
         </div>
 
-        {/* Filter Tabs */}
-        <Tabs value={filter} onValueChange={setFilter}>
-          <TabsList>
-            <TabsTrigger value="all">All Requests</TabsTrigger>
-            <TabsTrigger value="Pending">Pending</TabsTrigger>
-            <TabsTrigger value="Approved">Approved</TabsTrigger>
-            <TabsTrigger value="Ready">Issued</TabsTrigger>
-            <TabsTrigger value="Printed">Printed{printedCount ? ` (${printedCount})` : ''}</TabsTrigger>
-            <TabsTrigger value="Rejected">Rejected</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Filter Tabs + Search */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <Tabs value={filter} onValueChange={setFilter}>
+            <TabsList>
+              <TabsTrigger value="all">All Requests</TabsTrigger>
+              <TabsTrigger value="Pending">Pending</TabsTrigger>
+              <TabsTrigger value="Approved">Approved</TabsTrigger>
+              <TabsTrigger value="Ready">Issued</TabsTrigger>
+              <TabsTrigger value="Printed">Printed{printedCount ? ` (${printedCount})` : ''}</TabsTrigger>
+              <TabsTrigger value="Rejected">Rejected</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, enrollment no. or phone…"
+              className="pl-9"
+              data-testid="cert-search-input"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-1"
+                data-testid="cert-search-clear"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* Requests Table */}
         <Card>
@@ -745,7 +829,9 @@ const CertificateManagementPage = () => {
                 <thead className="bg-slate-50 border-b">
                   <tr>
                     <th className="text-left p-4 font-medium text-slate-600">Certificate ID</th>
+                    <th className="text-left p-4 font-medium text-slate-600">Enrollment No.</th>
                     <th className="text-left p-4 font-medium text-slate-600">Student Name</th>
+                    <th className="text-left p-4 font-medium text-slate-600">Phone</th>
                     <th className="text-left p-4 font-medium text-slate-600">Program</th>
                     <th className="text-left p-4 font-medium text-slate-600">Branch</th>
                     <th className="text-left p-4 font-medium text-slate-600">Status</th>
@@ -756,21 +842,25 @@ const CertificateManagementPage = () => {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="text-center p-8 text-slate-500">
+                      <td colSpan={9} className="text-center p-8 text-slate-500">
                         Loading...
                       </td>
                     </tr>
-                  ) : requests.length === 0 ? (
+                  ) : visibleRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center p-8 text-slate-500">
-                        No certificate requests found
+                      <td colSpan={9} className="text-center p-8 text-slate-500">
+                        {normalizedQuery
+                          ? `No certificate requests match "${searchQuery}"`
+                          : 'No certificate requests found'}
                       </td>
                     </tr>
                   ) : (
-                    requests.map((request) => (
+                    visibleRequests.map((request) => (
                       <tr key={request.id} className="border-b hover:bg-slate-50">
                         <td className="p-4 font-mono text-sm">{request.certificate_id}</td>
+                        <td className="p-4 font-mono text-sm text-slate-700">{request.enrollment_number || '—'}</td>
                         <td className="p-4 font-medium">{request.student_name}</td>
+                        <td className="p-4 text-sm text-slate-700">{request.phone || '—'}</td>
                         <td className="p-4 text-sm">{request.program_name}</td>
                         <td className="p-4 text-sm">{request.branch_name}</td>
                         <td className="p-4">{getStatusBadge(request.status)}</td>
@@ -836,7 +926,6 @@ const CertificateManagementPage = () => {
                                     program_end_date: request.program_end_date || '',
                                     training_mode: request.training_mode || 'Offline',
                                     training_hours: request.training_hours ?? null,
-                                    registration_number: request.registration_number || '',
                                     certificate_id: request.certificate_id || '',
                                   });
                                   setEditDialog(true);
@@ -1074,15 +1163,6 @@ const CertificateManagementPage = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Registration Number</Label>
-                  <Input
-                    value={editFormData.registration_number || ''}
-                    onChange={(e) => setEditFormData({...editFormData, registration_number: e.target.value})}
-                    placeholder="ETI-STU-XXXX"
-                    data-testid="cert-edit-registration-number"
-                  />
-                </div>
-                <div className="space-y-2">
                   <Label>Start Date</Label>
                   <Input
                     type="date"
@@ -1194,6 +1274,35 @@ const CertificateManagementPage = () => {
               </p>
             </DialogHeader>
             <div className="space-y-4">
+              {/* Enrollment lookup (fills everything else) */}
+              <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/50 space-y-2">
+                <Label className="text-sm font-medium text-blue-900">
+                  Enrollment Number <span className="text-xs text-slate-500 font-normal">(enter to auto-fetch student details)</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={manualFormData.enrollment_number}
+                    onChange={(e) => setManualFormData({ ...manualFormData, enrollment_number: e.target.value.toUpperCase() })}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleManualEnrollmentLookup(); } }}
+                    placeholder="e.g., PBPTKE0001"
+                    data-testid="cert-manual-enrollment-number"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleManualEnrollmentLookup}
+                    disabled={manualLookupLoading || !manualFormData.enrollment_number.trim()}
+                    data-testid="cert-manual-fetch-btn"
+                  >
+                    {manualLookupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    <span className="ml-1">Fetch</span>
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Student name, phone, email, branch and course details will be pre-filled. You can still edit the course name or type a custom one.
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Student Name <span className="text-red-500">*</span></Label>
@@ -1313,30 +1422,12 @@ const CertificateManagementPage = () => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Enrollment Number <span className="text-xs text-slate-400">(optional)</span></Label>
-                  <Input
-                    value={manualFormData.enrollment_number}
-                    onChange={(e) => setManualFormData({ ...manualFormData, enrollment_number: e.target.value })}
-                    placeholder="e.g., PBPTKE0001"
-                    data-testid="cert-manual-enrollment-number"
-                  />
-                </div>
-                <div className="space-y-2">
                   <Label>Certificate ID <span className="text-xs text-slate-400">(auto-generated if blank)</span></Label>
                   <Input
                     value={manualFormData.certificate_id}
                     onChange={(e) => setManualFormData({ ...manualFormData, certificate_id: e.target.value })}
                     placeholder="ETI-YYYY-XXXXX"
                     data-testid="cert-manual-certificate-id"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Registration Number <span className="text-xs text-slate-400">(auto-generated if blank)</span></Label>
-                  <Input
-                    value={manualFormData.registration_number}
-                    onChange={(e) => setManualFormData({ ...manualFormData, registration_number: e.target.value })}
-                    placeholder="ETI-STU-XXXX"
-                    data-testid="cert-manual-registration-number"
                   />
                 </div>
                 <div className="space-y-2">
