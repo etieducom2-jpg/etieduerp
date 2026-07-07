@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Users, CheckCircle, AlertTriangle, Award, IndianRupee, Banknote, ClipboardList, UserPlus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Users, CheckCircle, AlertTriangle, Award, IndianRupee, Banknote, ClipboardList, UserPlus, Phone, PackageCheck, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { certificateAPI } from '@/api/api';
 
 // Indian currency format: 1L = 1,00,000 | 1Cr = 1,00,00,000
 const formatIndianCurrency = (num) => {
@@ -25,6 +28,62 @@ const formatIndianCurrency = (num) => {
 
 const FDEDashboard = ({ fdeDashboard, fdeDashboardEnhanced }) => {
   const navigate = useNavigate();
+
+  // Certificate Pickup Queue — students whose certificates have been printed
+  // by the Cert Manager but not yet physically handed over. Front Desk uses
+  // this list to call them in and mark handover once collected.
+  const [pickupQueue, setPickupQueue] = useState([]);
+  const [pickupLoading, setPickupLoading] = useState(true);
+  const [handOverId, setHandOverId] = useState(null);
+
+  const fetchPickupQueue = useCallback(async () => {
+    setPickupLoading(true);
+    try {
+      const res = await certificateAPI.getAll();
+      const rows = (res.data || []).filter(
+        (r) => r.status === 'Printed' && !r.handed_over
+      );
+      // Newest / most recently printed first, then by name.
+      rows.sort((a, b) => {
+        const ap = a.printed_at || a.updated_at || '';
+        const bp = b.printed_at || b.updated_at || '';
+        return bp.localeCompare(ap);
+      });
+      setPickupQueue(rows);
+    } catch (e) {
+      console.error('Failed to load pickup queue:', e);
+    } finally {
+      setPickupLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPickupQueue();
+  }, [fetchPickupQueue]);
+
+  const handleHandOver = async (req) => {
+    const ok = window.confirm(
+      `Confirm that ${req.student_name} has picked up their certificate?\n\nCertificate ID: ${req.certificate_id}\nPhone: ${req.phone || '—'}`
+    );
+    if (!ok) return;
+    setHandOverId(req.id);
+    try {
+      const res = await certificateAPI.handOver(req.id);
+      if (res?.data?.already_handed_over) {
+        toast.info('Already marked as handed over.');
+      } else {
+        toast.success(`Handed over to ${req.student_name}`);
+      }
+      // Optimistically remove from local list, then refresh from server.
+      setPickupQueue((prev) => prev.filter((r) => r.id !== req.id));
+      fetchPickupQueue();
+    } catch (e) {
+      console.error('Hand-over error:', e);
+      toast.error(e?.response?.data?.detail || 'Failed to mark as handed over');
+    } finally {
+      setHandOverId(null);
+    }
+  };
 
   return (
     <div className="space-y-8" data-testid="fde-dashboard">
@@ -105,6 +164,103 @@ const FDEDashboard = ({ fdeDashboard, fdeDashboardEnhanced }) => {
           </Card>
         </div>
       )}
+
+      {/* Certificate Pickup Queue — Front Desk actions */}
+      <Card className="border-0 shadow-sm hover:shadow-lg transition-all duration-300 bg-gradient-to-br from-emerald-50 via-white to-white overflow-hidden" data-testid="fde-pickup-queue">
+        <CardHeader className="pb-3 pt-5 border-b border-emerald-100">
+          <CardTitle className="text-sm font-bold text-emerald-800 flex items-center gap-2 uppercase tracking-wide">
+            <div className="p-2 bg-emerald-100 rounded-lg">
+              <PackageCheck className="w-4 h-4 text-emerald-700" />
+            </div>
+            Certificate Pickup Queue
+            {pickupQueue.length > 0 && (
+              <Badge className="bg-emerald-600 text-white ml-auto">{pickupQueue.length} to call</Badge>
+            )}
+          </CardTitle>
+          <p className="text-xs text-slate-500 mt-1">
+            Students whose certificates are printed and waiting to be collected. Call them in, then mark as handed over.
+          </p>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {pickupLoading ? (
+            <div className="flex items-center justify-center py-8 text-slate-500 text-sm gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading pickup queue…
+            </div>
+          ) : pickupQueue.length === 0 ? (
+            <div className="text-center py-8 bg-gradient-to-b from-emerald-50/50 to-white rounded-xl">
+              <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CheckCircle className="w-8 h-8 text-emerald-500" />
+              </div>
+              <p className="text-sm font-medium text-emerald-700">All Clear!</p>
+              <p className="text-xs text-slate-500 mt-1">No certificates waiting to be picked up.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              {pickupQueue.map((req) => (
+                <div
+                  key={req.id}
+                  className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-3 bg-white rounded-xl border border-emerald-100 hover:border-emerald-300 hover:shadow-sm transition-all"
+                  data-testid={`fde-pickup-row-${req.id}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-slate-800 truncate">{req.student_name}</p>
+                      <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-mono">
+                        {req.certificate_id}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-1">
+                      {req.phone ? (
+                        <a
+                          href={`tel:${req.phone}`}
+                          className="inline-flex items-center gap-1 text-blue-700 hover:underline"
+                          data-testid={`fde-pickup-phone-${req.id}`}
+                        >
+                          <Phone className="w-3 h-3" /> {req.phone}
+                        </a>
+                      ) : (
+                        <span className="italic text-slate-400">No phone on record</span>
+                      )}
+                      {req.enrollment_number && (
+                        <span className="font-mono">Enr: {req.enrollment_number}</span>
+                      )}
+                      {req.program_name && <span className="truncate">{req.program_name}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 md:justify-end">
+                    {req.phone && (
+                      <Button
+                        asChild
+                        size="sm"
+                        variant="outline"
+                        className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                      >
+                        <a href={`tel:${req.phone}`} data-testid={`fde-pickup-call-${req.id}`}>
+                          <Phone className="w-4 h-4 mr-1" /> Call
+                        </a>
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => handleHandOver(req)}
+                      disabled={handOverId === req.id}
+                      data-testid={`fde-pickup-hand-over-${req.id}`}
+                    >
+                      {handOverId === req.id ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <PackageCheck className="w-4 h-4 mr-1" />
+                      )}
+                      Hand Over
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Enhanced Data Sections - Premium Cards */}
       {fdeDashboardEnhanced && (
