@@ -1329,6 +1329,14 @@ class CertificateRequest(BaseModel):
     is_manually_edited: bool = False
     is_manually_created: bool = False
 
+    # Pickup tracking — once the physical certificate is printed, Front Desk
+    # tracks whether it has been handed over to the student (called them in,
+    # they picked it up). Independent of the main workflow status.
+    handed_over: bool = False
+    handed_over_at: Optional[datetime] = None
+    handed_over_by: Optional[str] = None
+    handed_over_by_name: Optional[str] = None
+
 class CertificateRequestCreate(BaseModel):
     enrollment_number: str  # Student enters this
     email: str
@@ -12553,13 +12561,56 @@ async def get_overdue_followups(current_user: User = Depends(get_current_user)):
 # ============================================
 
 async def generate_certificate_id():
-    """Generate unique certificate ID: ETI-2025-00001"""
+    """Generate a globally-unique certificate ID: ETI-YYYY-00001.
+
+    Uses an atomic MongoDB counter (`counters` collection) with `$inc + upsert`
+    so concurrent creates cannot collide. If the counter is fresh or lags behind
+    an existing max (e.g. after a data restore / migration), it self-heals by
+    detecting the collision and jumping past the existing max value.
+    """
     year = datetime.now().year
-    # Get the count of certificates this year
-    count = await db.certificate_requests.count_documents({
-        "created_at": {"$regex": f"^{year}"}
-    })
-    return f"ETI-{year}-{str(count + 1).zfill(5)}"
+    counter_key = f"certificate_id_{year}"
+    prefix = f"ETI-{year}-"
+
+    for _ in range(5):
+        result = await db.counters.find_one_and_update(
+            {"_id": counter_key},
+            {"$inc": {"seq": 1}},
+            upsert=True,
+            return_document=True,
+        )
+        seq = (result or {}).get("seq", 1)
+        candidate = f"{prefix}{str(seq).zfill(5)}"
+
+        # Uniqueness check — protects against fresh counters lagging behind
+        # existing legacy certificate_ids.
+        exists = await db.certificate_requests.find_one(
+            {"certificate_id": candidate}, {"_id": 1}
+        )
+        if not exists:
+            return candidate
+
+        # Realign the counter with the actual max existing seq for this year.
+        highest = await db.certificate_requests.find_one(
+            {"certificate_id": {"$regex": f"^{prefix}"}},
+            sort=[("certificate_id", -1)],
+            projection={"_id": 0, "certificate_id": 1},
+        )
+        max_seq = seq
+        if highest and highest.get("certificate_id"):
+            try:
+                max_seq = max(max_seq, int(highest["certificate_id"].split("-")[-1]))
+            except (ValueError, IndexError):
+                pass
+        await db.counters.update_one(
+            {"_id": counter_key},
+            {"$set": {"seq": max_seq}},
+            upsert=True,
+        )
+
+    # Absolute last-resort — non-deterministic suffix so we still never collide
+    import secrets as _secrets
+    return f"{prefix}{_secrets.token_hex(3).upper()}"
 
 async def generate_verification_id():
     """Generate unique verification ID for QR code"""
@@ -13200,6 +13251,55 @@ async def mark_certificate_printed(request_id: str, current_user: User = Depends
     return {
         "message": f"Certificate {cert_request.get('certificate_id')} marked as printed.",
         "status": CertificateStatus.PRINTED.value,
+    }
+
+
+@api_router.post("/certificate-requests/{request_id}/hand-over")
+async def mark_certificate_handed_over(
+    request_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Mark a Printed certificate as physically handed over to the student.
+
+    Used by Front Desk / Cert Manager / Branch Admin / Admin to clear the
+    "pending pickup" queue once the student walks in and collects their cert.
+    Idempotent — safe to call twice.
+    """
+    if current_user.role not in CERT_VIEW_ROLES + [UserRole.BRANCH_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cert_request = await db.certificate_requests.find_one({"id": request_id}, {"_id": 0})
+    if not cert_request:
+        raise HTTPException(status_code=404, detail="Certificate request not found")
+
+    if current_user.role not in CERT_ALL_BRANCH_ROLES and cert_request.get('branch_id') != current_user.branch_id:
+        raise HTTPException(status_code=403, detail="Access denied for this branch")
+
+    if cert_request.get('status') != CertificateStatus.PRINTED.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Only Printed certificates can be marked as handed over."
+        )
+
+    if cert_request.get('handed_over'):
+        return {
+            "message": "Certificate was already marked as handed over.",
+            "already_handed_over": True,
+        }
+
+    await db.certificate_requests.update_one(
+        {"id": request_id},
+        {"$set": {
+            "handed_over": True,
+            "handed_over_at": datetime.now(timezone.utc).isoformat(),
+            "handed_over_by": current_user.id,
+            "handed_over_by_name": current_user.name,
+        }}
+    )
+
+    return {
+        "message": f"Certificate {cert_request.get('certificate_id')} handed over to {cert_request.get('student_name', 'student')}.",
+        "handed_over": True,
     }
 
 

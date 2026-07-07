@@ -467,6 +467,7 @@ export const certificateAPI = {
     }),
   download: (id) => api.post(`/certificate-requests/${id}/download`),
   markPrinted: (id) => api.post(`/certificate-requests/${id}/mark-printed`),
+  handOver: (id) => api.post(`/certificate-requests/${id}/hand-over`),
   createManual: (data) => api.post(`/certificate-requests/manual`, data),
 };
 

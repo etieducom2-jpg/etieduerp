@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { FileText, Download, CheckCircle, XCircle, Eye, Edit, Clock, Award, QrCode, Trash2, Printer, Search, Loader2 } from 'lucide-react';
+import { FileText, Download, CheckCircle, XCircle, Eye, Edit, Clock, Award, QrCode, Trash2, Printer, Search, Loader2, Phone, PackageCheck } from 'lucide-react';
 import { certificateAPI, adminAPI } from '@/api/api';
 
 // Coerce any error.response.data.detail shape (string | array of Pydantic errors
@@ -43,6 +43,7 @@ const CertificateManagementPage = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState(initialStatus);
+  const [pickupFilter, setPickupFilter] = useState('pending'); // pending | done | all — only used on Printed tab
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [editDialog, setEditDialog] = useState(false);
@@ -297,6 +298,25 @@ const CertificateManagementPage = () => {
     } catch (error) {
       console.error('Mark-printed error:', error);
       toast.error(humanizeError(error, 'Failed to mark certificate as printed'));
+    }
+  };
+
+  const handleHandOver = async (request) => {
+    const ok = window.confirm(
+      `Confirm that ${request.student_name} has picked up their certificate?\n\nCertificate ID: ${request.certificate_id}\nPhone: ${request.phone || '—'}`
+    );
+    if (!ok) return;
+    try {
+      const res = await certificateAPI.handOver(request.id);
+      if (res?.data?.already_handed_over) {
+        toast.info('This certificate was already marked as handed over.');
+      } else {
+        toast.success(`Handed over to ${request.student_name}`);
+      }
+      fetchRequests();
+    } catch (error) {
+      console.error('Hand-over error:', error);
+      toast.error(humanizeError(error, 'Failed to mark certificate as handed over'));
     }
   };
 
@@ -690,10 +710,11 @@ const CertificateManagementPage = () => {
   const approvedCount = requests.filter(r => r.status === 'Approved').length;
   const readyCount = requests.filter(r => r.status === 'Ready').length;
   const printedCount = requests.filter(r => r.status === 'Printed').length;
+  const pendingPickupCount = requests.filter(r => r.status === 'Printed' && !r.handed_over).length;
 
   // Client-side search across student name, enrollment number and phone.
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const visibleRequests = normalizedQuery
+  const searchFiltered = normalizedQuery
     ? requests.filter((r) => {
         const bag = [
           r.student_name,
@@ -709,6 +730,16 @@ const CertificateManagementPage = () => {
         return bag.includes(normalizedQuery);
       })
     : requests;
+
+  // On the Printed tab, honour the pickup sub-filter so Front Desk can focus
+  // on the students that still need to be called in for pickup.
+  const visibleRequests = filter === 'Printed'
+    ? searchFiltered.filter((r) => {
+        if (pickupFilter === 'pending') return !r.handed_over;
+        if (pickupFilter === 'done') return !!r.handed_over;
+        return true;
+      })
+    : searchFiltered;
 
   return (
     <Layout>
@@ -793,7 +824,9 @@ const CertificateManagementPage = () => {
               <TabsTrigger value="Pending">Pending</TabsTrigger>
               <TabsTrigger value="Approved">Approved</TabsTrigger>
               <TabsTrigger value="Ready">Issued</TabsTrigger>
-              <TabsTrigger value="Printed">Printed{printedCount ? ` (${printedCount})` : ''}</TabsTrigger>
+              <TabsTrigger value="Printed" data-testid="cert-tab-printed">
+                Printed{pendingPickupCount ? ` (${pendingPickupCount} to call)` : ''}
+              </TabsTrigger>
               <TabsTrigger value="Rejected">Rejected</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -820,6 +853,57 @@ const CertificateManagementPage = () => {
             )}
           </div>
         </div>
+
+        {/* Pickup Queue banner — visible only on the Printed tab */}
+        {filter === 'Printed' && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <div className="text-sm text-emerald-900">
+              <span className="font-semibold">Pickup queue</span>
+              <span className="mx-2 text-emerald-700">·</span>
+              <span>
+                {pendingPickupCount} student{pendingPickupCount === 1 ? '' : 's'} pending pickup — call them and mark as handed over when they collect their certificate.
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setPickupFilter('pending')}
+                className={`px-3 py-1 rounded-full border transition ${
+                  pickupFilter === 'pending'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                }`}
+                data-testid="pickup-filter-pending"
+              >
+                Pending Pickup
+              </button>
+              <button
+                type="button"
+                onClick={() => setPickupFilter('done')}
+                className={`px-3 py-1 rounded-full border transition ${
+                  pickupFilter === 'done'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                }`}
+                data-testid="pickup-filter-done"
+              >
+                Handed Over
+              </button>
+              <button
+                type="button"
+                onClick={() => setPickupFilter('all')}
+                className={`px-3 py-1 rounded-full border transition ${
+                  pickupFilter === 'all'
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                }`}
+                data-testid="pickup-filter-all"
+              >
+                All Printed
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Requests Table */}
         <Card>
@@ -967,12 +1051,43 @@ const CertificateManagementPage = () => {
                               </Button>
                             )}
                             {request.status === 'Printed' && (
-                              <span
-                                className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium"
-                                title={request.printed_by_name ? `Printed by ${request.printed_by_name}` : 'Printed'}
-                              >
-                                <Printer className="w-3.5 h-3.5" /> Printed
-                              </span>
+                              request.handed_over ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-xs text-slate-500 font-medium"
+                                  title={request.handed_over_by_name ? `Handed over by ${request.handed_over_by_name}` : 'Handed over'}
+                                >
+                                  <PackageCheck className="w-3.5 h-3.5 text-emerald-600" /> Handed Over
+                                </span>
+                              ) : (
+                                <>
+                                  {request.phone && (
+                                    <a
+                                      href={`tel:${request.phone}`}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-300 text-blue-700 text-xs hover:bg-blue-50 transition"
+                                      title={`Call ${request.student_name} at ${request.phone}`}
+                                      data-testid={`cert-call-${request.id}`}
+                                    >
+                                      <Phone className="w-3.5 h-3.5" /> Call
+                                    </a>
+                                  )}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                    onClick={() => handleHandOver(request)}
+                                    title="Mark as handed over to the student"
+                                    data-testid={`cert-hand-over-${request.id}`}
+                                  >
+                                    <PackageCheck className="w-4 h-4 mr-1" /> Hand Over
+                                  </Button>
+                                  <span
+                                    className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium"
+                                    title={request.printed_by_name ? `Printed by ${request.printed_by_name}` : 'Printed'}
+                                  >
+                                    <Printer className="w-3.5 h-3.5" /> Printed
+                                  </span>
+                                </>
+                              )
                             )}
                             
                             {canApproveReject && (
