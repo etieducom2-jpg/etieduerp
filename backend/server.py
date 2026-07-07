@@ -13137,7 +13137,8 @@ async def download_certificate(request_id: str, current_user: User = Depends(get
         "program_start_date": cert_request.get('program_start_date', ''),
         "program_end_date": cert_request.get('program_end_date', ''),
         "verification_id": cert_request.get('verification_id', ''),
-        "issued_date": datetime.now().strftime("%d-%m-%Y")
+        "issued_date": datetime.now().strftime("%d-%m-%Y"),
+        "is_manually_created": bool(cert_request.get('is_manually_created', False)),
     }
 
 @api_router.post("/certificate-requests/{request_id}/mark-printed")

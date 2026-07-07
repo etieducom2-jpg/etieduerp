@@ -473,6 +473,8 @@ const CertificateManagementPage = () => {
     ctx.fillText(durationLine, canvas.width / 2, 1310);
 
     // Show training period (start → end) so date edits reflect on the certificate.
+    // Skipped for manually-created certificates — those are typically reissues /
+    // corrections where the exact training window isn't relevant on the printout.
     const fmtCertDate = (iso) => {
       if (!iso) return '';
       const d = new Date(iso.length > 10 ? iso : iso + 'T00:00:00');
@@ -481,7 +483,7 @@ const CertificateManagementPage = () => {
     };
     const startTxt = fmtCertDate(certData.program_start_date);
     const endTxt = fmtCertDate(certData.program_end_date);
-    if (startTxt && endTxt) {
+    if (startTxt && endTxt && !certData.is_manually_created) {
       ctx.font = '34px "Times New Roman", Georgia, serif';
       ctx.fillStyle = '#333333';
       ctx.fillText(`Training period: ${startTxt} to ${endTxt}`, canvas.width / 2, 1365);
