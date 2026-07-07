@@ -503,11 +503,9 @@ const CertificateManagementPage = () => {
     ctx.textAlign = 'left';
     ctx.font = 'bold 32px Arial, sans-serif';
     ctx.fillStyle = '#1e3a5f';
-    ctx.fillText(`Certificate ID: ${certData.certificate_id}`, leftMargin, bottomY);
-    if (certData.enrollment_number) {
-      ctx.fillText(`Enrollment No.: ${certData.enrollment_number}`, leftMargin, bottomY + 55);
-    }
-    ctx.fillText(`Date of Issue: ${certData.issued_date}`, leftMargin, bottomY + 110);
+    ctx.fillText(`Certificate ID: ${certData.certificate_id || ''}`, leftMargin, bottomY);
+    ctx.fillText(`Enrollment No.: ${certData.enrollment_number || '—'}`, leftMargin, bottomY + 55);
+    ctx.fillText(`Date of Issue: ${certData.issued_date || ''}`, leftMargin, bottomY + 110);
     ctx.font = '28px Arial, sans-serif';
     ctx.fillStyle = '#555555';
     ctx.fillText(`Verification: ${(certData.verification_id || '').substring(0, 16)}`, leftMargin, bottomY + 165);
