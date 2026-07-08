@@ -155,6 +155,8 @@ const Layout = ({ children }) => {
     { icon: Building2, label: 'Schools/Colleges', path: '/organizations', show: isBranchAdmin },
     // Batch Management - For Branch Admin, Super Admin, Front Desk, Counsellor
     { icon: UsersRound, label: 'Batches', path: '/batches', show: isBranchAdmin || isSuperAdmin || isFDE || isCounsellor },
+    // Programs - Read-only catalogue with AI curriculum, for counselling roles
+    { icon: BookOpen, label: 'Programs', path: '/programs', show: isSuperAdmin || isBranchAdmin || isCounsellor || isFDE },
     // Curriculum Management - For Academic Controller only (removed from Trainer)
     { icon: BookOpen, label: 'Curriculum', path: '/curriculum', show: isAcademicController },
     // Certificates - For Super Admin, Front Desk Executive (view & download approved)

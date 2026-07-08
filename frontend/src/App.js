@@ -28,6 +28,7 @@ import CertificateManagementPage from '@/pages/CertificateManagementPage';
 import CertificateVerifyPage from '@/pages/CertificateVerifyPage';
 import OrganizationsPage from '@/pages/OrganizationsPage';
 import BatchManagementPage from '@/pages/BatchManagementPage';
+import ProgramsPage from '@/pages/ProgramsPage';
 import TrainerDashboard from '@/pages/TrainerDashboard';
 import CurriculumPage from '@/pages/CurriculumPage';
 import CampaignManagement from '@/pages/CampaignManagement';
@@ -388,6 +389,14 @@ function App() {
             element={
               <PrivateRoute>
                 <Layout><BatchManagementPage /></Layout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/programs"
+            element={
+              <PrivateRoute>
+                <Layout><ProgramsPage /></Layout>
               </PrivateRoute>
             }
           />

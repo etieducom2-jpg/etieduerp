@@ -210,6 +210,12 @@ class Program(BaseModel):
     duration: str
     fee: float
     max_discount_percent: float
+    # AI-generated curriculum outline (markdown) — refreshed on demand from the
+    # `/programs/{id}/curriculum/generate` endpoint. Cached here so we don't
+    # regenerate on every page load.
+    curriculum: Optional[str] = None
+    curriculum_generated_at: Optional[datetime] = None
+    curriculum_model: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ProgramCreate(BaseModel):
@@ -2255,6 +2261,151 @@ async def delete_program(program_id: str, current_user: User = Depends(require_r
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Program not found")
     return {"message": "Program deleted successfully"}
+
+
+# ---------- AI-generated curriculum ---------- #
+
+CURRICULUM_ROLES = [
+    UserRole.ADMIN,
+    UserRole.BRANCH_ADMIN,
+    UserRole.COUNSELLOR,
+    UserRole.FRONT_DESK,
+    UserRole.ACADEMIC_CONTROLLER,
+]
+
+
+@api_router.post("/programs/{program_id}/curriculum/generate")
+async def generate_program_curriculum(
+    program_id: str,
+    refresh: bool = False,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate (and cache) an up-to-date curriculum for a program using the
+    Emergent LLM. Returns the cached copy if one exists unless `refresh=true`.
+
+    Accessible to Admin / Branch Admin / Counsellor / Front Desk / Academic
+    Controller so they can share the curriculum with prospective students.
+    """
+    if current_user.role not in CURRICULUM_ROLES:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    program = await db.programs.find_one({"id": program_id}, {"_id": 0})
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    # Return cached copy if present and no refresh requested.
+    if not refresh and program.get("curriculum"):
+        return {
+            "program_id": program_id,
+            "curriculum": program["curriculum"],
+            "generated_at": program.get("curriculum_generated_at"),
+            "model": program.get("curriculum_model"),
+            "cached": True,
+        }
+
+    if not LLM_AVAILABLE or not os.environ.get("EMERGENT_LLM_KEY"):
+        raise HTTPException(
+            status_code=503,
+            detail="AI curriculum generation is unavailable — EMERGENT_LLM_KEY is not configured.",
+        )
+
+    program_name = program.get("name", "")
+    duration = program.get("duration", "")
+    fee = program.get("fee")
+
+    system_message = (
+        "You are an experienced curriculum designer for a vocational education "
+        "institute in India. Produce clean, well-structured, up-to-date learning "
+        "curriculums that map neatly to the total program duration. Use Markdown. "
+        "Do NOT include any pricing, marketing copy, or institute-specific info. "
+        "Focus purely on modules, topics, tools, hands-on projects and outcomes."
+    )
+
+    user_prompt = f"""Create a complete, up-to-date curriculum for the following program.
+
+Program: {program_name}
+Total Duration: {duration}
+
+Output format (Markdown, no other text):
+
+# {program_name} — Curriculum
+_Duration: {duration}_
+
+## Learning Outcomes
+- 4 to 6 bullet points
+
+## Module-wise Breakdown
+Break the total duration into logical modules. For each module include:
+### Module N — <Title> (<time allocation, e.g. Week 1–2>)
+- 3 to 6 topics/sub-topics
+- Tools / software / frameworks used (if any)
+
+## Hands-on Projects & Case Studies
+- 3 to 5 real-world project ideas graded from beginner → capstone.
+
+## Assessment & Certification
+- Brief bullet points on how learners are evaluated.
+
+## Career Paths
+- 4 to 6 job roles / next steps a graduate can pursue.
+
+Keep the content contemporary (industry trends & tools relevant today) and
+practical. Avoid filler."""
+
+    try:
+        chat = LlmChat(
+            api_key=os.environ.get("EMERGENT_LLM_KEY"),
+            session_id=f"curriculum-{program_id}",
+            system_message=system_message,
+        ).with_model("openai", "gpt-4o")
+        response = await chat.send_message(UserMessage(text=user_prompt))
+        curriculum_md = str(response).strip()
+    except Exception as e:
+        logger.error(f"Curriculum generation failed for {program_id}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not generate curriculum right now. Please retry. ({type(e).__name__})",
+        )
+
+    generated_at = datetime.now(timezone.utc)
+    await db.programs.update_one(
+        {"id": program_id},
+        {"$set": {
+            "curriculum": curriculum_md,
+            "curriculum_generated_at": generated_at.isoformat(),
+            "curriculum_model": "openai/gpt-4o",
+        }},
+    )
+
+    return {
+        "program_id": program_id,
+        "curriculum": curriculum_md,
+        "generated_at": generated_at.isoformat(),
+        "model": "openai/gpt-4o",
+        "cached": False,
+    }
+
+
+@api_router.get("/programs/{program_id}/curriculum")
+async def get_program_curriculum(
+    program_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return the cached curriculum for a program (if any). Never triggers
+    generation — the frontend calls the POST endpoint explicitly."""
+    if current_user.role not in CURRICULUM_ROLES:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    program = await db.programs.find_one({"id": program_id}, {"_id": 0})
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    return {
+        "program_id": program_id,
+        "curriculum": program.get("curriculum"),
+        "generated_at": program.get("curriculum_generated_at"),
+        "model": program.get("curriculum_model"),
+    }
 
 # ============ ACADEMIC SESSION MANAGEMENT ============
 

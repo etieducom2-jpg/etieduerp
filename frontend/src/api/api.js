@@ -127,6 +127,8 @@ export const adminAPI = {
   getPrograms: () => api.get('/programs'),
   updateProgram: (id, data) => api.put(`/admin/programs/${id}`, data),
   deleteProgram: (id) => api.delete(`/admin/programs/${id}`),
+  getCurriculum: (id) => api.get(`/programs/${id}/curriculum`),
+  generateCurriculum: (id, refresh = false) => api.post(`/programs/${id}/curriculum/generate?refresh=${refresh ? 'true' : 'false'}`),
   createUser: (data) => api.post('/admin/users', data),
   getUsers: () => api.get('/admin/users'),
   getBranchUsers: () => api.get('/branch/users'),
